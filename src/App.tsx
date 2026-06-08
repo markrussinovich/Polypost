@@ -12,6 +12,8 @@ import type { FeedPreviewMode } from './lib/feedPreview';
 import { SAMPLE_DOCUMENT } from './lib/sampleContent';
 import { clearDraft, deleteDraftSnapshot, loadDraft, loadDraftHistory, saveDraft, saveDraftSnapshot, type DraftSnapshot } from './lib/storage';
 
+const LINKEDIN_POST_COMPOSER_URL = 'https://www.linkedin.com/feed/?shareActive=true';
+
 function App() {
   const [initialLoad] = useState(loadDraft);
   const [document, setDocument] = useState<EditorNode>(() => initialLoad.document ?? SAMPLE_DOCUMENT);
@@ -36,7 +38,24 @@ function App() {
   async function handleCopy() {
     try {
       await copyPlainText(exportedText);
-      setCopyStatus({ state: 'success', message: 'Copied LinkedIn-ready text.' });
+      setCopyStatus({ state: 'idle', message: '' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Copy failed. Select the preview text and copy manually.';
+      setCopyStatus({ state: 'error', message });
+    }
+  }
+
+  async function handleCopyAndOpenLinkedIn() {
+    try {
+      await copyPlainText(exportedText);
+      const linkedinWindow = window.open(LINKEDIN_POST_COMPOSER_URL, '_blank');
+
+      if (linkedinWindow) {
+        linkedinWindow.opener = null;
+        setCopyStatus({ state: 'idle', message: '' });
+      } else {
+        setCopyStatus({ state: 'error', message: 'Copied LinkedIn-ready text, but your browser blocked the LinkedIn tab.' });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Copy failed. Select the preview text and copy manually.';
       setCopyStatus({ state: 'error', message });
@@ -104,7 +123,7 @@ function App() {
             className="github-link"
             href="https://github.com/markrussinovich/LinkedIn-Formatter"
             target="_blank"
-            rel="noreferrer"
+            rel="noreferrer noopener"
             aria-label="Open GitHub repository"
           >
             <svg className="github-mark" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -127,7 +146,7 @@ function App() {
               onDocumentChange={handleDocumentChange}
               onReset={handleReset}
             />
-            <CopyPanel disabled={!exportedText} status={copyStatus} onCopy={handleCopy} />
+            <CopyPanel disabled={!exportedText} status={copyStatus} onCopy={handleCopy} onCopyAndOpenLinkedIn={handleCopyAndOpenLinkedIn} />
             <DraftHistoryPanel
               drafts={draftHistory}
               onDelete={handleDeleteDraftSnapshot}

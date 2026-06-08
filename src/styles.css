@@ -609,6 +609,12 @@ h2 {
   background: linear-gradient(180deg, #fff, #f8fbff);
 }
 
+.copy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .primary-action {
   display: inline-flex;
   min-height: 44px;
@@ -635,7 +641,11 @@ h2 {
 
 .secondary-action,
 .draft-item-actions button {
+  display: inline-flex;
   min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   border: 1px solid rgba(10, 102, 194, 0.22);
   border-radius: 8px;
   padding: 0 12px;
@@ -660,10 +670,6 @@ h2 {
   margin: 0;
   color: var(--muted);
   font-size: 0.875rem;
-}
-
-.copy-panel.is-success .copy-status {
-  color: var(--success);
 }
 
 .copy-panel.is-error .copy-status {
