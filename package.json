@@ -1,6 +1,6 @@
 {
   "name": "linkedin-format",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -8,6 +8,7 @@
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "tsc -b && vite build",
     "build:extension": "tsc -b && vite build --config vite.extension.config.ts",
+    "package:extension": "npm run build:extension && node scripts/package-extension.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
     "test:watch": "vitest"
