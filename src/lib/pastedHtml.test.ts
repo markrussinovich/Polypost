@@ -63,6 +63,14 @@ describe('sanitizePastedHTML', () => {
     expect(sanitized).toContain('<p>Third.</p>');
   });
 
+  it('trims whitespace from the Word <html>/<body> wrapper', () => {
+    const html = '<html>\r\n<body>\r\n<!--StartFragment--><p class="MsoNormal">Only line.<o:p></o:p></p><!--EndFragment-->\r\n</body>\r\n</html>';
+
+    const sanitized = sanitizePastedHTML(html);
+
+    expect(sanitized).toBe('<p>Only line.</p>');
+  });
+
   it('removes paragraphs that hold only whitespace or line breaks', () => {
     const html = '<p>Real line.</p><p><br></p><p>&nbsp;</p><p>   </p><p>Another line.</p>';
 

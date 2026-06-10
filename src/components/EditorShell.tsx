@@ -4,8 +4,7 @@ import CharacterCount from '@tiptap/extension-character-count';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import Underline from '@tiptap/extension-underline';
-import { Slice } from '@tiptap/pm/model';
-import { EditorContent, useEditor, type JSONContent } from '@tiptap/react';
+import { EditorContent, useEditor, type Editor, type JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 
 import type { EditorNode } from '../lib/exportLinkedInText';
@@ -51,6 +50,28 @@ const extensions = [
   CharacterCount,
 ];
 
+// Sanitizes pasted content before it reaches the editor. Markdown-looking plain
+// text becomes formatted content; HTML (e.g. Word/Office) is run through the
+// sanitizer to strip empty paragraphs and Office noise. Runs in the capture
+// phase and stops the event so ProseMirror's default paste does not also fire.
+function handleEditorPaste(editor: Editor, event: ClipboardEvent) {
+  const plainText = event.clipboardData?.getData('text/plain') ?? '';
+  const html = event.clipboardData?.getData('text/html') ?? '';
+
+  if (plainText && looksLikeMarkdown(plainText)) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    editor.commands.insertContent(markdownToTipTap(plainText).content ?? []);
+    return;
+  }
+
+  if (html.trim()) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    editor.commands.insertContent(sanitizePastedHTML(html));
+  }
+}
+
 export function EditorShell({
   exportedText,
   feedPreviewMode,
@@ -71,25 +92,13 @@ export function EditorShell({
         'aria-label': 'LinkedIn post draft editor',
         class: 'rich-editor-content',
       },
-      transformPastedHTML(html) {
-        return sanitizePastedHTML(html);
-      },
-      handlePaste(view, event) {
-        const plainText = event.clipboardData?.getData('text/plain') ?? '';
-
-        if (!plainText || !looksLikeMarkdown(plainText)) {
-          return false;
-        }
-
-        const parsedDocument = markdownToTipTap(plainText);
-        const schemaNode = view.state.schema.nodeFromJSON(parsedDocument);
-        const transaction = view.state.tr.replaceSelection(new Slice(schemaNode.content, 0, 0)).scrollIntoView();
-        view.dispatch(transaction);
-        return true;
-      },
     },
     immediatelyRender: false,
     onCreate({ editor: currentEditor }) {
+      // Handle paste on the editor DOM directly. ProseMirror's editorProps
+      // paste hooks proved unreliable in the extension's mount, so a
+      // capture-phase listener guarantees our sanitization is applied.
+      currentEditor.view.dom.addEventListener('paste', (event) => handleEditorPaste(currentEditor, event), true);
       onDocumentChange(currentEditor.getJSON() as EditorNode);
     },
     onUpdate({ editor: currentEditor }) {

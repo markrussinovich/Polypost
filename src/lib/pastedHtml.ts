@@ -21,7 +21,10 @@ export function sanitizePastedHTML(html: string): string {
 
   removeEmptyBlocks(template.content);
 
-  return template.innerHTML;
+  // Trim leading/trailing whitespace: Word wraps content in <html>/<body> and
+  // the whitespace between those tags survives as edge text, which ProseMirror
+  // would turn into empty paragraphs at the start/end of the paste.
+  return template.innerHTML.trim();
 }
 
 // Word/Office paste wraps content in namespaced elements (o:p, w:*, v:*) that are
