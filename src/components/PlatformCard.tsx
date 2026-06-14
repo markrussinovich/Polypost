@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react';
-import { AlertTriangle, Check, Copy, ExternalLink, Loader, Pencil, RotateCcw, Sparkles } from 'lucide-react';
+import { AlertTriangle, Check, Copy, ExternalLink, Link2, Loader, Pencil, RotateCcw, Sparkles } from 'lucide-react';
 
 import { copyPlainText } from '../lib/clipboard';
 import type { EditorNode } from '../lib/exportText';
+import type { Attachment } from '../lib/media';
 import type { PlatformRender, PlatformSpec } from '../lib/platforms/types';
 import { isTextTruncated, type PreviewMode, type TruncationConfig } from '../lib/truncation';
 import { CharacterMeter } from './CharacterMeter';
@@ -17,6 +18,9 @@ interface PlatformCardProps {
   isForked: boolean;
   // Holds an AI-fitted version (and isn't user-forked).
   isAiAdapted: boolean;
+  // Shared media & links surfaced on every card. Links are already folded into
+  // render.text; files (image/video) show as download/drag handles here.
+  attachments: Attachment[];
   // An AI fit is in flight for this platform.
   isGenerating: boolean;
   // AI endpoint is configured, so the "Adapt with AI" action is available.
@@ -41,6 +45,7 @@ export function PlatformCard({
   document,
   isForked,
   isAiAdapted,
+  attachments,
   isGenerating,
   aiReady,
   isEditing,
@@ -56,7 +61,9 @@ export function PlatformCard({
   // Feed cutoff breakpoints this platform defines (e.g. LinkedIn: desktop + mobile).
   const truncationModes = spec.truncation ? (Object.keys(spec.truncation) as PreviewMode[]) : [];
   const [previewMode, setPreviewMode] = useState<PreviewMode>(truncationModes[0] ?? 'desktop');
-  const [expanded, setExpanded] = useState(false);
+  // Start expanded so the card shows the full post; the "…more"/"less…" toggle
+  // still lets the user preview how the feed collapses it.
+  const [expanded, setExpanded] = useState(true);
 
   const activeCutoff = spec.truncation?.[previewMode] ?? null;
   const truncated = activeCutoff ? isTextTruncated(render.text, activeCutoff) : false;
@@ -195,6 +202,8 @@ export function PlatformCard({
         )}
       </div>
 
+      {!isEditing ? <CardAttachments attachments={attachments} platformLabel={spec.label} /> : null}
+
       {render.warnings.length > 0 ? (
         <ul className="platform-card-warnings">
           {render.warnings.map((warning) => (
@@ -221,6 +230,28 @@ export function PlatformCard({
         ) : null}
       </footer>
     </article>
+  );
+}
+
+// Shared links shown on each card as a reference chip. The URL is already in the
+// post text (and counted); image/video files live only in the Media tray (not on
+// the previews) since a text copy can't carry them into a platform's composer.
+function CardAttachments({ attachments, platformLabel }: { attachments: Attachment[]; platformLabel: string }) {
+  const links = attachments.filter((attachment) => attachment.kind === 'link');
+
+  if (links.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="card-attachments" aria-label={`Links for ${platformLabel}`}>
+      {links.map((attachment) => (
+        <a key={attachment.id} className="card-attachment is-link" href={attachment.url} target="_blank" rel="noreferrer noopener" title={attachment.url}>
+          <Link2 aria-hidden="true" size={13} />
+          <span className="card-attachment-name">{attachment.name}</span>
+        </a>
+      ))}
+    </div>
   );
 }
 

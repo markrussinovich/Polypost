@@ -4,7 +4,7 @@ Draft a post once and see it formatted for every platform at the same time. The 
 
 It ships in two forms:
 
-- **Web app** — the multi-platform editor. Live at https://markrussinovich.github.io/LinkedIn-Formatter/
+- **Web app** — the multi-platform editor. Live at https://markrussinovich.github.io/OmniPost/
 - **Browser extension** — runs on LinkedIn itself. Clicking **Start a post** opens the formatter *as* the composer; its **Post** button writes the formatted text into LinkedIn's native composer and submits through LinkedIn's own Post flow. The extension remains LinkedIn-specific. See [Browser Extension](#browser-extension).
 
 <p align="center">

@@ -27,6 +27,7 @@ function renderCard(spec: PlatformSpec, doc: EditorNode) {
       document={doc}
       isForked={false}
       isAiAdapted={false}
+      attachments={[]}
       isGenerating={false}
       aiReady={false}
       isEditing={false}

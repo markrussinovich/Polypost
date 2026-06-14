@@ -23,8 +23,10 @@ function text(value: string, marks: EditorNode['marks'] = []): EditorNode {
 }
 
 describe('exportLinkedInText', () => {
-  it('exports paragraphs with blank lines between text blocks', () => {
-    expect(exportLinkedInText(doc([paragraph([text('First')]), paragraph([text('Second')])]))).toBe('First\n\nSecond');
+  it('separates adjacent paragraphs with a single newline (blank lines come from empty paragraphs)', () => {
+    expect(exportLinkedInText(doc([paragraph([text('First')]), paragraph([text('Second')])]))).toBe('First\nSecond');
+    // An empty paragraph between them is the author-inserted blank line.
+    expect(exportLinkedInText(doc([paragraph([text('First')]), paragraph([]), paragraph([text('Second')])]))).toBe('First\n\nSecond');
   });
 
   it('exports styled inline text as LinkedIn-friendly Unicode', () => {
@@ -122,7 +124,7 @@ describe('exportLinkedInText', () => {
       },
     ]);
 
-    expect(exportLinkedInText(document)).toBe('• First\n• Second\n\n3. Third\n4. Fourth');
+    expect(exportLinkedInText(document)).toBe('• First\n• Second\n3. Third\n4. Fourth');
   });
 
   it('exports nested lists with plain text indentation', () => {
@@ -157,7 +159,7 @@ describe('exportLinkedInText', () => {
       paragraph([text('After')]),
     ]);
 
-    expect(exportLinkedInText(document)).toBe('      Quoted\n\n      Follow-up\n────────\nAfter');
+    expect(exportLinkedInText(document)).toBe('      Quoted\n      Follow-up\n────────\nAfter');
   });
 
   it('strips unsupported leaf nodes and keeps supported text around them', () => {

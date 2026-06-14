@@ -53,7 +53,7 @@ button:disabled {
 }
 
 .app-shell {
-  width: min(980px, calc(100% - 32px));
+  width: min(1060px, calc(100% - 32px));
   margin: 0 auto;
   padding: 28px 0 40px;
 }
@@ -68,6 +68,12 @@ button:disabled {
 .header-copy {
   flex: 1 1 auto;
   text-align: left;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .github-link {
@@ -143,7 +149,7 @@ h2 {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 400px;
+  grid-template-columns: minmax(0, 1fr) 430px;
   gap: 20px;
   align-items: start;
 }
@@ -349,6 +355,21 @@ h2 {
   font-size: 0.9rem;
 }
 
+/* Compact Generate button so it doesn't tower over the input. The extra class
+   raises specificity above .primary-action (same single-class weight otherwise). */
+.ai-assist .ai-assist-submit {
+  min-height: 34px;
+  padding: 0 14px;
+  font-size: 0.82rem;
+}
+
+/* Reference sources live inside the AI box — sit flush, no top divider. */
+.ai-assist .sources-panel {
+  margin: 10px 0 0;
+  border-top: 0;
+  padding-top: 0;
+}
+
 .ai-assist-error,
 .rail-ai-error {
   display: flex;
@@ -478,17 +499,17 @@ h2 {
   line-height: 1.4;
 }
 
-.modal-test {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
+/* Freeform user guidance reads in a lighter grey so it's clearly the user's own
+   text, distinct from the bold field labels. */
+.field-row textarea.style-guidance {
+  color: var(--muted);
 }
 
 .test-result {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  margin: 0;
   font-size: 0.82rem;
   font-weight: 600;
 }
@@ -529,6 +550,20 @@ h2 {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 4px;
+}
+
+/* Dialog buttons share one standard height and are content-sized. By default the
+   outlined Test/Cancel buttons stretch full-width (flex: 1) and Save is taller
+   (44px) — here they all match at 36px. */
+.modal-actions .card-copy-button,
+.modal-actions .primary-action {
+  flex: 0 0 auto;
+  min-height: 36px;
+}
+
+/* Test connection sits on the same row, pushed to the left; Cancel/Save stay right. */
+.modal-actions .modal-test-button {
+  margin-right: auto;
 }
 
 .platform-card-actions {
@@ -667,9 +702,9 @@ h2 {
   gap: 6px;
   flex: 1 1 auto;
   min-height: 36px;
-  padding: 0 12px;
+  padding: 0 16px;
   border: 1px solid rgba(10, 102, 194, 0.4);
-  border-radius: 8px;
+  border-radius: 999px;
   background: var(--surface);
   color: var(--linkedin-blue-dark);
   font-size: 0.82rem;
@@ -1124,13 +1159,17 @@ h2 {
   scrollbar-gutter: stable;
 }
 
+/* The editor renders newlines literally, exactly like the LinkedIn preview:
+   blocks stack at line-height with NO inter-block margin, so adjacent paragraphs
+   sit on consecutive lines. Vertical gaps come only from empty paragraphs (the
+   blank lines the author types) — same as the exported text. */
 .rich-editor-content p {
-  margin: 0 0 1rem;
+  margin: 0;
 }
 
 .rich-editor-content h2,
 .rich-editor-content h3 {
-  margin: 0 0 1rem;
+  margin: 0;
   color: inherit;
   font-size: 1rem;
   line-height: inherit;
@@ -1146,7 +1185,7 @@ h2 {
 
 .rich-editor-content ul,
 .rich-editor-content ol {
-  margin: 0 0 1rem;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
@@ -1155,7 +1194,7 @@ h2 {
 .rich-editor-content ul ol,
 .rich-editor-content ol ul,
 .rich-editor-content ol ol {
-  margin: 0.2rem 0 0 1.25rem;
+  margin: 0 0 0 1.25rem;
 }
 
 .rich-editor-content ol {
@@ -1164,7 +1203,7 @@ h2 {
 
 .rich-editor-content li {
   position: relative;
-  margin: 0.2rem 0;
+  margin: 0;
   padding-left: 1rem;
 }
 
@@ -1186,23 +1225,23 @@ h2 {
 }
 
 .rich-editor-content li p {
-  margin: 0.2rem 0;
+  margin: 0;
 }
 
 .rich-editor-content blockquote {
-  margin: 1rem 0;
+  margin: 0;
   border: 0;
   padding: 0 0 0 1.25rem;
   color: inherit;
 }
 
 .rich-editor-content blockquote p {
-  margin: 0.2rem 0;
+  margin: 0;
 }
 
 .rich-editor-content hr {
   height: auto;
-  margin: 1.4rem 0;
+  margin: 0;
   border: 0;
   color: var(--muted);
   text-align: left;
@@ -1720,3 +1759,312 @@ h2 {
 [data-theme='dark'] .import-button:focus-within {
   background: var(--surface-alt);
 }
+
+/* ---- AI reference sources & shared media trays ---- */
+.sources-panel,
+.media-tray {
+  margin: 0 20px 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.sources-panel summary,
+.media-tray summary {
+  color: var(--ink);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.sources-hint,
+.media-hint {
+  margin: 10px 0 0;
+  line-height: 1.4;
+}
+
+.sources-actions,
+.media-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* Compact "Add" controls in the media tray (the extra .media-tray scope raises
+   specificity above .secondary-action/.primary-action). */
+.media-tray .media-add,
+.media-tray .media-add-confirm {
+  min-height: 28px;
+  padding: 0 10px;
+  gap: 5px;
+  font-size: 0.78rem;
+}
+
+/* File inputs ride inside a label styled as a secondary-action button. */
+.sources-file,
+.media-file {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.sources-file input,
+.media-file input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.sources-busy {
+  color: var(--linkedin-blue-dark);
+}
+
+.sources-input-row,
+.media-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.sources-input-row input,
+.media-link-row input {
+  flex: 1 1 200px;
+  min-width: 0;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.sources-text-row {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.sources-text-row input,
+.sources-text-row textarea,
+.source-fallback textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+}
+
+.sources-text-row input {
+  min-height: 36px;
+}
+
+.sources-text-row .primary-action {
+  justify-self: start;
+}
+
+.sources-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  color: var(--danger);
+}
+
+.sources-list,
+.media-list {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.source-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--surface);
+}
+
+.source-item.is-pending {
+  border-color: rgba(180, 35, 24, 0.4);
+}
+
+.source-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.source-icon {
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.source-favicon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  object-fit: contain;
+}
+
+.source-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.source-meta {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.source-remove,
+.media-remove,
+.media-download,
+.media-copy {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.source-remove:hover,
+.media-remove:hover,
+.media-download:hover,
+.media-copy:hover {
+  background: var(--surface-alt);
+  color: var(--ink);
+}
+
+.media-copy.is-copied {
+  color: #15803d;
+}
+
+.media-copy.is-error {
+  color: var(--danger);
+}
+
+/* File items can be dragged out into a platform's composer. */
+.media-item.is-image,
+.media-item.is-video {
+  cursor: grab;
+}
+
+.source-fallback {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.source-fallback-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--danger);
+}
+
+.source-fallback .secondary-action {
+  justify-self: start;
+}
+
+/* Media list items */
+.media-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+}
+
+.media-thumb {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--surface-alt);
+}
+
+.media-link-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  color: var(--linkedin-blue-dark);
+  background: var(--surface-alt);
+}
+
+.media-item-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+/* Per-card attachment strip */
+.card-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.card-attachment {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* A reference tag — deliberately not button-shaped: dashed edge + tinted fill. */
+.card-attachment.is-link {
+  gap: 5px;
+  max-width: 100%;
+  border: 1px dashed rgba(10, 102, 194, 0.4);
+  border-radius: 6px;
+  padding: 3px 8px;
+  color: var(--linkedin-blue-dark);
+  background: rgba(10, 102, 194, 0.07);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.card-attachment.is-link:hover {
+  background: rgba(10, 102, 194, 0.12);
+  text-decoration: underline;
+}
+
+.card-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+

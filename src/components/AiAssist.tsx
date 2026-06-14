@@ -1,15 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Settings, Sparkles } from 'lucide-react';
 
+import { SourcesPanel } from './SourcesPanel';
+import type { Source } from '../lib/ai/sources';
+
 interface AiAssistProps {
   ready: boolean;
   busy: boolean;
   error: string | null;
   onSubmit: (instruction: string) => void;
   onOpenSettings: () => void;
+  // Reference sources live inside the AI area.
+  sources: Source[];
+  onAddSource: (source: Source) => void;
+  onUpdateSource: (id: string, source: Source) => void;
+  onRemoveSource: (id: string) => void;
 }
 
-export function AiAssist({ ready, busy, error, onSubmit, onOpenSettings }: AiAssistProps) {
+export function AiAssist({ ready, busy, error, onSubmit, onOpenSettings, sources, onAddSource, onUpdateSource, onRemoveSource }: AiAssistProps) {
   const [instruction, setInstruction] = useState('');
   const [history, setHistory] = useState<string[]>([]);
   // -1 means "live input"; otherwise an index into history.
@@ -77,27 +85,35 @@ export function AiAssist({ ready, busy, error, onSubmit, onOpenSettings }: AiAss
   }
 
   return (
-    <form className="ai-assist" onSubmit={handleSubmit}>
-      <div className="ai-assist-row">
-        <Sparkles aria-hidden="true" size={16} className="ai-assist-icon" />
-        <input
-          type="text"
-          value={instruction}
-          placeholder="Ask AI to write or improve this post… (↑/↓ for history)"
-          aria-label="AI instruction"
-          disabled={busy}
-          onChange={(event) => setInstruction(event.target.value)}
-          onKeyDown={handleKeyDown}
-        />
-        <button type="submit" className="primary-action" disabled={busy || !instruction.trim()}>
-          {busy ? 'Working…' : 'Generate'}
-        </button>
-      </div>
-      {error ? (
-        <p className="ai-assist-error" role="status">
-          <AlertTriangle aria-hidden="true" size={14} /> {error}
-        </p>
-      ) : null}
-    </form>
+    <div className="ai-assist">
+      <form className="ai-assist-form" onSubmit={handleSubmit}>
+        <div className="ai-assist-row">
+          <Sparkles aria-hidden="true" size={16} className="ai-assist-icon" />
+          <input
+            type="text"
+            value={instruction}
+            placeholder="Ask AI to write or improve this post… (↑/↓ for history)"
+            aria-label="AI instruction"
+            disabled={busy}
+            onChange={(event) => setInstruction(event.target.value)}
+            onKeyDown={handleKeyDown}
+          />
+          <button type="submit" className="primary-action ai-assist-submit" disabled={busy || !instruction.trim()}>
+            {busy ? 'Working…' : 'Generate'}
+          </button>
+        </div>
+        {error ? (
+          <p className="ai-assist-error" role="status">
+            <AlertTriangle aria-hidden="true" size={14} /> {error}
+          </p>
+        ) : null}
+      </form>
+      <SourcesPanel
+        sources={sources}
+        onAddSource={onAddSource}
+        onUpdateSource={onUpdateSource}
+        onRemoveSource={onRemoveSource}
+      />
+    </div>
   );
 }

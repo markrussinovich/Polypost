@@ -51,6 +51,7 @@ describe('markdownToTipTap', () => {
             { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Second' }] }] },
           ],
         },
+        { type: 'paragraph' },
         {
           type: 'orderedList',
           attrs: { start: 1 },
@@ -59,6 +60,7 @@ describe('markdownToTipTap', () => {
             { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Two' }] }] },
           ],
         },
+        { type: 'paragraph' },
         {
           type: 'blockquote',
           content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Quote' }] }],
@@ -73,6 +75,7 @@ describe('markdownToTipTap', () => {
       type: 'doc',
       content: [
         { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Big idea' }] },
+        { type: 'paragraph' },
         { type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: 'Detail' }] },
       ],
     });
@@ -99,6 +102,8 @@ describe('markdownToTipTap', () => {
       type: 'doc',
       content: [
         { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Title' }] },
+        { type: 'paragraph' },
+        { type: 'paragraph' },
         { type: 'paragraph', content: [{ type: 'text', text: 'After image' }] },
       ],
     });
@@ -118,6 +123,7 @@ describe('plainTextToTipTap', () => {
             { type: 'text', text: 'Second line' },
           ],
         },
+        { type: 'paragraph' },
         {
           type: 'paragraph',
           content: [{ type: 'text', text: '**Plain**, not bold' }],

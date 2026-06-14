@@ -34,31 +34,38 @@ export function exportText(document: EditorNode | null | undefined, options: Exp
 }
 
 function renderBlocks(nodes: EditorNode[], options: ExportOptions): string {
-  const renderedBlocks = nodes
-    .map((node) => ({ node, text: renderBlock(node, options) }))
-    .filter((block) => block.text.length > 0);
+  let output = '';
+  let previous: EditorNode | null = null;
+  // Empty paragraphs are blank lines the author inserted for spacing. Rather than
+  // dropping them, each one adds an extra newline between the surrounding content
+  // so the spacing shows in the preview. (Leading/trailing blank lines are still
+  // trimmed by trimPlainWhitespace.)
+  let pendingBlankLines = 0;
 
-  return renderedBlocks.reduce((output, block, index) => {
-    if (index === 0) {
-      return block.text;
+  for (const node of nodes) {
+    const text = renderBlock(node, options);
+
+    if (text.length === 0) {
+      if (previous !== null && node.type === 'paragraph') {
+        pendingBlankLines += 1;
+      }
+      continue;
     }
 
-    const previous = renderedBlocks[index - 1];
-    const separator = getBlockSeparator(previous.node, block.node);
-    return `${output}${separator}${block.text}`;
-  }, '');
-}
+    if (previous === null) {
+      output = text;
+    } else {
+      // Every block boundary is a single newline; blank lines come only from the
+      // author's empty paragraphs (counted above). This mirrors LinkedIn's
+      // composer, where newlines map 1:1 instead of auto-spacing paragraphs.
+      output += '\n' + '\n'.repeat(pendingBlankLines) + text;
+    }
 
-function getBlockSeparator(previous: EditorNode, current: EditorNode): string {
-  if (previous.type === 'horizontalRule' || current.type === 'horizontalRule') {
-    return '\n';
+    previous = node;
+    pendingBlankLines = 0;
   }
 
-  if (previous.type === 'heading' && (current.type === 'bulletList' || current.type === 'orderedList')) {
-    return '\n';
-  }
-
-  return '\n\n';
+  return output;
 }
 
 function trimPlainWhitespace(text: string): string {

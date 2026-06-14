@@ -8,6 +8,7 @@ import { EditorShell } from './components/EditorShell';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { HelpModal } from './components/HelpModal';
 import { LlmSettings } from './components/LlmSettings';
+import { MediaTray } from './components/MediaTray';
 import { OmniPostMark } from './components/OmniPostMark';
 import { PlatformRail } from './components/PlatformRail';
 import { PlatformToggleChips } from './components/PlatformToggleChips';
@@ -15,6 +16,14 @@ import { loadTheme, saveTheme, type Theme } from './lib/theme';
 import { selectAutofit } from './lib/ai/autofit';
 import { isLlmReady, loadLlmConfig, saveLlmConfig, type LlmConfig } from './lib/ai/config';
 import { docToPlainText } from './lib/ai/docText';
+import { buildSourcesBlock, loadSources, saveSources, type Source } from './lib/ai/sources';
+import {
+  linkUrls,
+  loadAttachments,
+  revokeAttachment,
+  saveAttachments,
+  type Attachment,
+} from './lib/media';
 import { markdownToTipTap } from './lib/markdownToTipTap';
 import { generateFit } from './lib/ai/fit';
 import { generateText } from './lib/ai/llmClient';
@@ -78,6 +87,11 @@ function App() {
   const [authorBusy, setAuthorBusy] = useState(false);
   const [authorError, setAuthorError] = useState<string | null>(null);
 
+  // Reference material handed to the AI as background (persisted), and shared
+  // media/links surfaced on every platform card (links persisted, files session-only).
+  const [sources, setSources] = useState<Source[]>(loadSources);
+  const [attachments, setAttachments] = useState<Attachment[]>(loadAttachments);
+
   const aiReady = isLlmReady(llmConfig);
 
   const aiVersionsRef = useRef(aiVersions);
@@ -102,8 +116,20 @@ function App() {
     }
   }, [workspace]);
 
+  // Persist AI sources and shared links (file attachments are session-only and
+  // ignored by saveAttachments).
+  useEffect(() => {
+    saveSources(sources);
+  }, [sources]);
+
+  useEffect(() => {
+    saveAttachments(attachments);
+  }, [attachments]);
+
   // One render + seed document per enabled platform. The document each platform
   // renders/edits from: a user fork wins, then an AI-fitted version, then master.
+  const sharedLinkUrls = useMemo(() => linkUrls(attachments), [attachments]);
+
   const { platformRenders, platformDocuments } = useMemo(() => {
     const renders = new Map<PlatformId, PlatformRender>();
     const documents = new Map<PlatformId, EditorNode>();
@@ -114,12 +140,12 @@ function App() {
       if (spec) {
         const doc = workspace.overrides[id] ?? aiVersions.get(id) ?? workspace.master;
         documents.set(id, doc);
-        renders.set(id, renderForPlatform(doc, spec));
+        renders.set(id, renderForPlatform(doc, spec, { linkUrls: sharedLinkUrls }));
       }
     }
 
     return { platformRenders: renders, platformDocuments: documents };
-  }, [workspace, aiVersions]);
+  }, [workspace, aiVersions, sharedLinkUrls]);
 
   const enabledSpecs = PLATFORMS.filter((spec) => workspace.enabledPlatforms.includes(spec.id));
   const forkedIds = useMemo(() => new Set(Object.keys(workspace.overrides) as PlatformId[]), [workspace.overrides]);
@@ -147,9 +173,9 @@ function App() {
 
     return () => window.clearTimeout(handle);
     // runAutofit reads the latest workspace via this effect's closure; it re-runs
-    // (resetting the timer) on every master/platform/override/config change.
+    // (resetting the timer) on every master/platform/override/config/link change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace.master, workspace.enabledPlatforms, workspace.overrides, llmConfig]);
+  }, [workspace.master, workspace.enabledPlatforms, workspace.overrides, llmConfig, sharedLinkUrls]);
 
   async function runAutofit() {
     fitAbortRef.current?.abort();
@@ -161,6 +187,7 @@ function App() {
       enabledPlatforms: workspace.enabledPlatforms,
       userForkedIds: new Set(Object.keys(workspace.overrides) as PlatformId[]),
       aiVersionIds: new Set(aiVersionsRef.current.keys()),
+      linkUrls: sharedLinkUrls,
     });
 
     if (selection.toClear.length > 0) {
@@ -186,7 +213,7 @@ function App() {
         try {
           // generateFit re-checks the length and regenerates automatically; we
           // always show its best result without surfacing an over-limit notice.
-          const result = await generateFit({ config: llmConfig, spec, masterText, style: llmConfig.stylePrompt, signal: controller.signal });
+          const result = await generateFit({ config: llmConfig, spec, masterText, style: llmConfig.stylePrompt, signal: controller.signal, linkUrls: sharedLinkUrls });
 
           if (!controller.signal.aborted) {
             setAiVersions((prev) => new Map(prev).set(id, result.doc));
@@ -217,7 +244,7 @@ function App() {
     setAiError(null);
 
     try {
-      const result = await generateFit({ config: llmConfig, spec, masterText: docToPlainText(workspace.master), style: llmConfig.stylePrompt });
+      const result = await generateFit({ config: llmConfig, spec, masterText: docToPlainText(workspace.master), style: llmConfig.stylePrompt, linkUrls: sharedLinkUrls });
       setAiVersions((prev) => new Map(prev).set(id, result.doc));
     } catch (error) {
       setAiError(`${spec.label}: ${error instanceof Error ? error.message : 'AI request failed.'}`);
@@ -239,7 +266,7 @@ function App() {
     setAuthorError(null);
 
     try {
-      const { system, prompt } = buildAuthorRequest(instruction, docToPlainText(workspace.master), llmConfig.stylePrompt);
+      const { system, prompt } = buildAuthorRequest(instruction, docToPlainText(workspace.master), llmConfig.stylePrompt, buildSourcesBlock(sources));
       const text = await generateText({ config: llmConfig, system, prompt });
       const doc = markdownToTipTap(text);
       setWorkspace((prev) => applyMasterEdit(prev, doc));
@@ -257,6 +284,34 @@ function App() {
     setLlmConfig(config);
     saveLlmConfig(config);
     setShowSettings(false);
+  }
+
+  function handleAddSource(source: Source) {
+    setSources((prev) => [...prev, source]);
+  }
+
+  function handleUpdateSource(id: string, source: Source) {
+    setSources((prev) => prev.map((existing) => (existing.id === id ? source : existing)));
+  }
+
+  function handleRemoveSource(id: string) {
+    setSources((prev) => prev.filter((source) => source.id !== id));
+  }
+
+  function handleAddAttachment(attachment: Attachment) {
+    setAttachments((prev) => [...prev, attachment]);
+  }
+
+  function handleRemoveAttachment(id: string) {
+    setAttachments((prev) => {
+      const target = prev.find((attachment) => attachment.id === id);
+
+      if (target) {
+        revokeAttachment(target);
+      }
+
+      return prev.filter((attachment) => attachment.id !== id);
+    });
   }
 
   function handleMasterChange(nextMaster: EditorNode) {
@@ -385,32 +440,34 @@ function App() {
             <h1 id="app-title">{APP_NAME}</h1>
             <p className="subtitle">Draft once, format for every platform. Connect an AI assistant to help write your post and tailor it to each platform's length and style.</p>
           </div>
-          <button type="button" className="header-icon-button" aria-label="How OmniPost works" title="Help" onClick={() => setShowHelp(true)}>
-            <HelpCircle aria-hidden="true" size={18} />
-          </button>
-          <button
-            type="button"
-            className="header-icon-button"
-            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
-            onClick={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
-          >
-            {theme === 'dark' ? <Sun aria-hidden="true" size={18} /> : <Moon aria-hidden="true" size={18} />}
-          </button>
-          <button type="button" className="header-icon-button" aria-label="AI settings" title="AI settings" onClick={() => setShowSettings(true)}>
-            <Settings aria-hidden="true" size={18} />
-          </button>
-          <a
-            className="github-link"
-            href="https://github.com/markrussinovich/LinkedIn-Formatter"
-            target="_blank"
-            rel="noreferrer noopener"
-            aria-label="Open GitHub repository"
-          >
-            <svg className="github-mark" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.65 7.65 0 0 1 8 3.86c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
-            </svg>
-          </a>
+          <div className="header-actions">
+            <button type="button" className="header-icon-button" aria-label="How OmniPost works" title="Help" onClick={() => setShowHelp(true)}>
+              <HelpCircle aria-hidden="true" size={18} />
+            </button>
+            <button
+              type="button"
+              className="header-icon-button"
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+              onClick={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
+            >
+              {theme === 'dark' ? <Sun aria-hidden="true" size={18} /> : <Moon aria-hidden="true" size={18} />}
+            </button>
+            <button type="button" className="header-icon-button" aria-label="AI settings" title="AI settings" onClick={() => setShowSettings(true)}>
+              <Settings aria-hidden="true" size={18} />
+            </button>
+            <a
+              className="github-link"
+              href="https://github.com/markrussinovich/OmniPost"
+              target="_blank"
+              rel="noreferrer noopener"
+              aria-label="Open GitHub repository"
+            >
+              <svg className="github-mark" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.65 7.65 0 0 1 8 3.86c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+              </svg>
+            </a>
+          </div>
         </header>
 
         <PlatformToggleChips
@@ -430,6 +487,10 @@ function App() {
               error={authorError}
               onSubmit={handleAuthor}
               onOpenSettings={() => setShowSettings(true)}
+              sources={sources}
+              onAddSource={handleAddSource}
+              onUpdateSource={handleUpdateSource}
+              onRemoveSource={handleRemoveSource}
             />
             <EditorShell
               key={editorVersion}
@@ -437,6 +498,11 @@ function App() {
               onDocumentChange={handleMasterChange}
               onReplaceDocument={handleReplaceDocument}
               onReset={handleReset}
+            />
+            <MediaTray
+              attachments={attachments}
+              onAddAttachment={handleAddAttachment}
+              onRemoveAttachment={handleRemoveAttachment}
             />
             <DraftHistoryPanel
               drafts={draftHistory}
@@ -452,6 +518,7 @@ function App() {
             documents={platformDocuments}
             forkedIds={forkedIds}
             aiAdaptedIds={aiAdaptedIds}
+            attachments={attachments}
             generatingIds={generating}
             aiReady={aiReady}
             aiError={aiError}

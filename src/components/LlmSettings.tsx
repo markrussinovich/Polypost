@@ -105,6 +105,7 @@ export function LlmSettings({ config, onSave, onClose }: LlmSettingsProps) {
         <label className="field-row">
           <span>Style guidance (optional)</span>
           <textarea
+            className="style-guidance"
             rows={2}
             value={draft.stylePrompt}
             placeholder="e.g. Keep posts light-hearted and include a bit of humor."
@@ -117,20 +118,18 @@ export function LlmSettings({ config, onSave, onClose }: LlmSettingsProps) {
           <span>Auto-fit over-limit platforms after a 3s typing pause</span>
         </label>
 
-        <div className="modal-test">
-          <button type="button" className="card-copy-button" disabled={!canTest || test.status === 'testing'} onClick={handleTest}>
+        {test.status === 'ok' ? (
+          <p className="test-result is-ok"><Check aria-hidden="true" size={15} /> {test.message}</p>
+        ) : null}
+        {test.status === 'error' ? (
+          <p className="test-result is-error"><AlertTriangle aria-hidden="true" size={15} /> {test.message}</p>
+        ) : null}
+
+        <div className="modal-actions">
+          <button type="button" className="card-copy-button modal-test-button" disabled={!canTest || test.status === 'testing'} onClick={handleTest}>
             {test.status === 'testing' ? <Loader aria-hidden="true" size={15} className="spin" /> : null}
             {test.status === 'testing' ? 'Testing…' : 'Test connection'}
           </button>
-          {test.status === 'ok' ? (
-            <span className="test-result is-ok"><Check aria-hidden="true" size={15} /> {test.message}</span>
-          ) : null}
-          {test.status === 'error' ? (
-            <span className="test-result is-error"><AlertTriangle aria-hidden="true" size={15} /> {test.message}</span>
-          ) : null}
-        </div>
-
-        <div className="modal-actions">
           <button type="button" className="card-copy-button" onClick={onClose}>Cancel</button>
           <button type="submit" className="primary-action">Save</button>
         </div>

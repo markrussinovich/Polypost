@@ -251,7 +251,7 @@ export function LinkedInComposerOverlay({ open, onClose, onPost }: LinkedInCompo
           <div className="lipf-actions">
             <a
               className="lipf-github-link"
-              href="https://github.com/markrussinovich/LinkedIn-Formatter"
+              href="https://github.com/markrussinovich/OmniPost"
               target="_blank"
               rel="noreferrer noopener"
               aria-label="Open GitHub repository"

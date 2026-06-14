@@ -74,7 +74,47 @@ describe('exportText', () => {
       paragraph([text('Body')]),
     ]);
 
-    expect(exportText(document, { unicodeStyling: false })).toBe('Title\n\nBody');
+    expect(exportText(document, { unicodeStyling: false })).toBe('Title\nBody');
+  });
+
+  it('hugs a list to adjacent paragraphs with a single newline (no blank lines around bullets)', () => {
+    const document = doc([
+      paragraph([text('Here is what shipped:')]),
+      {
+        type: 'bulletList',
+        content: [
+          { type: 'listItem', content: [paragraph([text('Faster sync')])] },
+          { type: 'listItem', content: [paragraph([text('Dark mode')])] },
+        ],
+      },
+      paragraph([text('More soon.')]),
+    ]);
+
+    expect(exportText(document, { unicodeStyling: false })).toBe(
+      'Here is what shipped:\n• Faster sync\n• Dark mode\nMore soon.',
+    );
+  });
+
+  it('preserves author-inserted blank lines (empty paragraphs) as extra newlines', () => {
+    const oneBlank = doc([
+      paragraph([text('First')]),
+      paragraph([]),
+      paragraph([text('Second')]),
+    ]);
+    // Each empty paragraph is exactly one blank line (literal mapping).
+    expect(exportText(oneBlank, { unicodeStyling: false })).toBe('First\n\nSecond');
+
+    const twoBlanks = doc([
+      paragraph([text('First')]),
+      paragraph([]),
+      paragraph([]),
+      paragraph([text('Second')]),
+    ]);
+    expect(exportText(twoBlanks, { unicodeStyling: false })).toBe('First\n\n\nSecond');
+
+    // Leading/trailing blank lines are still trimmed away.
+    const edged = doc([paragraph([]), paragraph([text('Only')]), paragraph([])]);
+    expect(exportText(edged, { unicodeStyling: false })).toBe('Only');
   });
 
   it('keeps link rendering and mention tokens intact regardless of styling', () => {

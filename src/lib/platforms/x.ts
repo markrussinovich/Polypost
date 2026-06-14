@@ -21,5 +21,4 @@ export const xSpec: PlatformSpec = {
     },
   },
   warnings: [],
-  disclaimer: 'Count is an estimate — X weighs some characters (CJK, emoji) as 2 and URLs as 23.',
 };

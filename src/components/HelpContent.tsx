@@ -32,6 +32,11 @@ export function HelpContent() {
             only in this browser.
           </li>
           <li>Ask the AI to write or improve the main draft from the bar above the editor.</li>
+          <li>
+            Give the AI material to use as its context with "Reference sources for AI": add a .txt/.md/.docx file, a
+            URL, or pasted text. Sources are context only — they're never posted. If a URL can't be fetched (many sites
+            block it), paste the page text into the prompt the card shows.
+          </li>
           <li>Use "Adapt with AI" on a card to rewrite the post for that platform on demand.</li>
           <li>
             With auto-fit on, any platform over its limit is rewritten automatically about 3 seconds after you stop
@@ -56,6 +61,26 @@ export function HelpContent() {
           <li>Hashtags stay plain so platforms have the best chance to recognize them.</li>
           <li>Links export as readable text plus URL because custom pasted anchor text is not supported in posts.</li>
           <li>Pasted Markdown converts to formatted draft text for common inline styles, links, headings, fenced code, lists, blockquotes, and horizontal rules.</li>
+        </ul>
+      </section>
+
+      <section className="help-section">
+        <h3>Images &amp; links</h3>
+        <ul className="help-list">
+          <li>
+            Add an image or a link once in "Images &amp; links" below the editor and reuse it everywhere — no need to
+            re-add it per platform.
+          </li>
+          <li>
+            Link URLs fold into each card's text and count against that platform's limit (on X each counts as 23), so
+            Copy and Copy &amp; open include them automatically. Links are saved to this browser.
+          </li>
+          <li>
+            For an image, use <strong>Copy image</strong> to put the picture on your clipboard and paste it straight into
+            the LinkedIn composer, or download / drag the file into any other composer. Images are kept for this session
+            only. (Videos can't be copied by a web page, so they're not included — post video through the LinkedIn
+            extension, which attaches it for you.)
+          </li>
         </ul>
       </section>
 

@@ -28,6 +28,7 @@ describe('PlatformRail', () => {
         documents={documents}
         forkedIds={new Set()}
         aiAdaptedIds={new Set()}
+        attachments={[]}
         generatingIds={new Set()}
         aiReady={false}
         aiError={null}

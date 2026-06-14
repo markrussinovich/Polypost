@@ -76,6 +76,21 @@ export function Toolbar({ editor, onImportFile, onReset }: ToolbarProps) {
     }
 
     const href = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+    // With no text selected, setLink has nothing to mark and inserts nothing.
+    // Insert the URL itself as linked text, then drop the mark + add a space so
+    // typing continues unlinked.
+    if (editor.state.selection.empty) {
+      editor
+        .chain()
+        .focus()
+        .insertContent({ type: 'text', text: href, marks: [{ type: 'link', attrs: { href } }] })
+        .unsetMark('link')
+        .insertContent(' ')
+        .run();
+      return;
+    }
+
     editor.chain().focus().extendMarkRange('link').setLink({ href }).run();
   }
 

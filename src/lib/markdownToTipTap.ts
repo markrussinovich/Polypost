@@ -14,16 +14,47 @@ export function looksLikeMarkdown(text: string): boolean {
 }
 
 export function plainTextToTipTap(text: string): EditorNode {
-  const paragraphs = text
-    .replace(/\r\n?/g, '\n')
-    .split(/\n{2,}/)
-    .map((paragraphText) => paragraphText.trim())
-    .filter(Boolean);
+  const normalized = text.replace(/\r\n?/g, '\n').trim();
 
-  return {
-    type: 'doc',
-    content: paragraphs.map((paragraphText) => paragraphFromPlainText(paragraphText)),
+  if (!normalized) {
+    return { type: 'doc', content: [{ type: 'paragraph' }] };
+  }
+
+  const lines = normalized.split('\n');
+  const content: EditorNode[] = [];
+  let buffer: string[] = [];
+
+  const flush = () => {
+    if (buffer.length) {
+      content.push(paragraphFromPlainText(buffer.join('\n')));
+      buffer = [];
+    }
   };
+
+  let index = 0;
+  while (index < lines.length) {
+    if (lines[index].trim() === '') {
+      // A run of blank lines becomes that many empty paragraphs (blank line <->
+      // empty paragraph), preserving the author's spacing under the literal exporter.
+      let blanks = 0;
+      while (index < lines.length && lines[index].trim() === '') {
+        blanks += 1;
+        index += 1;
+      }
+      flush();
+      if (content.length > 0 && index < lines.length) {
+        for (let i = 0; i < blanks; i += 1) {
+          content.push({ type: 'paragraph' });
+        }
+      }
+    } else {
+      buffer.push(lines[index]);
+      index += 1;
+    }
+  }
+  flush();
+
+  return { type: 'doc', content: content.length ? content : [{ type: 'paragraph' }] };
 }
 
 export function markdownToTipTap(markdown: string): EditorNode {
@@ -35,7 +66,21 @@ export function markdownToTipTap(markdown: string): EditorNode {
     const line = lines[index];
 
     if (!line.trim()) {
-      index += 1;
+      // Preserve blank lines as empty paragraphs (blank line <-> empty paragraph),
+      // so the airy spacing in markdown/LLM output survives the literal exporter.
+      // Leading and trailing blanks are skipped (the export trims them anyway).
+      let blanks = 0;
+      while (index < lines.length && !lines[index].trim()) {
+        blanks += 1;
+        index += 1;
+      }
+
+      if (content.length > 0 && index < lines.length) {
+        for (let i = 0; i < blanks; i += 1) {
+          content.push({ type: 'paragraph' });
+        }
+      }
+
       continue;
     }
 

@@ -35,8 +35,15 @@ function withStyle(baseSystem: string, style?: string): string {
   return trimmed ? `${baseSystem}\n\nFollow this voice/style guidance from the user: ${trimmed}` : baseSystem;
 }
 
-// Rewrite the master post to fit a platform's length and formatting.
-export function buildFitRequest(spec: PlatformSpec, masterText: string, style?: string): LlmRequest {
+// Rewrite the master post to fit a platform's length and formatting. `limit` is
+// the budget for the post text itself; it can be lower than spec.charLimit when
+// shared links will be appended and consume part of the platform's limit.
+export function buildFitRequest(spec: PlatformSpec, masterText: string, style?: string, limit: number = spec.charLimit): LlmRequest {
+  const reserved = spec.charLimit - limit;
+  const reservedNote = reserved > 0
+    ? ` Note: ${reserved} characters are reserved for attached links, so your text must fit within ${limit}.`
+    : '';
+
   return {
     system: withStyle(
       'You adapt a social media post for a specific platform. Preserve the author\'s voice, key message, hashtags, and @mentions. ' +
@@ -46,24 +53,29 @@ export function buildFitRequest(spec: PlatformSpec, masterText: string, style?: 
     ),
     prompt:
       `${buildPlatformPromptContext(spec)}\n\n` +
-      `Rewrite the post below so it fits within ${spec.charLimit} characters for ${spec.label}. ` +
-      `Staying within ${spec.charLimit} characters is required — count as you write.\n\n` +
+      `Rewrite the post below so it fits within ${limit} characters for ${spec.label}.${reservedNote} ` +
+      `Staying within ${limit} characters is required — count as you write.\n\n` +
       `Post:\n${masterText}`,
   };
 }
 
 // Follow-up instruction when a fitted version still exceeds the limit.
-export function buildOverLimitFeedback(spec: PlatformSpec, previousText: string, previousCount: number): string {
+export function buildOverLimitFeedback(spec: PlatformSpec, previousText: string, previousCount: number, limit: number = spec.charLimit): string {
   return (
-    `That version was ${previousCount} characters — ${previousCount - spec.charLimit} over the ${spec.charLimit}-character limit for ${spec.label}. ` +
-    `Rewrite it to be at most ${spec.charLimit} characters. Cut or condense content as needed.\n\n` +
+    `That version was ${previousCount} characters — ${previousCount - limit} over the ${limit}-character limit for your text. ` +
+    `Rewrite it to be at most ${limit} characters. Cut or condense content as needed.\n\n` +
     `Previous version:\n${previousText}`
   );
 }
 
-// Help author or revise the master draft from a freeform instruction.
-export function buildAuthorRequest(instruction: string, currentText: string, style?: string): LlmRequest {
+// Help author or revise the master draft from a freeform instruction. Optional
+// `sources` is reference material (docs/URLs the user attached) the model should
+// draw on as background — see buildSourcesBlock in sources.ts.
+export function buildAuthorRequest(instruction: string, currentText: string, style?: string, sources?: string | null): LlmRequest {
   const hasDraft = Boolean(currentText.trim());
+  const reference = sources?.trim()
+    ? `Reference material (use as background; do not copy verbatim):\n${sources.trim()}\n\n`
+    : '';
 
   return {
     system: withStyle(
@@ -74,7 +86,7 @@ export function buildAuthorRequest(instruction: string, currentText: string, sty
       style,
     ),
     prompt: hasDraft
-      ? `Current draft:\n${currentText}\n\nInstruction: ${instruction}\n\nReturn the revised post.`
-      : `Write a social media post. Instruction: ${instruction}`,
+      ? `${reference}Current draft:\n${currentText}\n\nInstruction: ${instruction}\n\nReturn the revised post.`
+      : `${reference}Write a social media post. Instruction: ${instruction}`,
   };
 }

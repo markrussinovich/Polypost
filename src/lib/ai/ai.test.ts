@@ -17,11 +17,13 @@ describe('plainTextToDoc / docToPlainText', () => {
     expect(docToPlainText(plainTextToDoc(text))).toBe(text);
   });
 
-  it('splits blank lines into paragraphs and single newlines into hard breaks', () => {
+  it('maps single newlines to hard breaks and a blank line to an empty paragraph', () => {
     const doc = plainTextToDoc('a\nb\n\nc');
-    expect(doc.content).toHaveLength(2);
-    // First paragraph has text, hardBreak, text.
+    // para(a<br>b), empty paragraph (the blank line), para(c).
+    expect(doc.content).toHaveLength(3);
     expect(doc.content?.[0].content?.map((n) => n.type)).toEqual(['text', 'hardBreak', 'text']);
+    expect(doc.content?.[1]).toEqual({ type: 'paragraph' });
+    expect(doc.content?.[2].content?.map((n) => n.type)).toEqual(['text']);
   });
 });
 
