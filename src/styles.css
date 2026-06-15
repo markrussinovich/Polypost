@@ -2046,6 +2046,13 @@ h2 {
   list-style: none;
 }
 
+/* Grid items default to min-width:auto; force shrink so long URLs can't stretch
+   rows beyond the tray width. */
+.sources-list > li,
+.media-list > li {
+  min-width: 0;
+}
+
 .source-item {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2153,6 +2160,8 @@ h2 {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px 10px;
@@ -2180,8 +2189,10 @@ h2 {
 }
 
 .media-item-name {
+  display: block;
   flex: 1 1 auto;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
