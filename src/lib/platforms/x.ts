@@ -21,4 +21,5 @@ export const xSpec: PlatformSpec = {
     },
   },
   warnings: [],
+  disclaimer: 'Counts are an estimate: links count as 23 characters and some complex emoji may count as more.',
 };

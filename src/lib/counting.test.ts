@@ -51,6 +51,18 @@ describe('countCharacters', () => {
       // "see " (4) + URL (23) = 27
       expect(countCharacters('see https://a.co', 'x-weighted')).toBe(27);
     });
+
+    it('counts a bare domain as a flat 23, like X auto-links it', () => {
+      // X shortens `example.com` to 23 even though it is 11 literal characters.
+      expect(countCharacters('example.com', 'x-weighted')).toBe(23);
+      // "Read more at " (13) + URL (23) = 36
+      expect(countCharacters('Read more at example.com', 'x-weighted')).toBe(36);
+    });
+
+    it('counts the punctuation around a bare URL as text, not part of the link', () => {
+      // "(" (1) + URL (23) + ")" (1) = 25
+      expect(countCharacters('(example.com)', 'x-weighted')).toBe(25);
+    });
   });
 
   describe('mastodon', () => {
@@ -63,6 +75,14 @@ describe('countCharacters', () => {
       expect(countCharacters('hello', 'mastodon')).toBe(5);
       expect(countCharacters('日本語', 'mastodon')).toBe(3);
       expect(countCharacters('🚀', 'mastodon')).toBe(1);
+    });
+
+    it('counts a bare domain literally — Mastodon only auto-links http(s):// URLs', () => {
+      // Unlike X, Mastodon requires a scheme, so example.com stays 11 chars.
+      expect(countCharacters('example.com', 'mastodon')).toBe(11);
+      expect(countCharacters('Read more at example.com', 'mastodon')).toBe(24);
+      // An explicit-scheme URL is still shortened to a flat 23.
+      expect(countCharacters('Read more at https://example.com/x', 'mastodon')).toBe(36);
     });
   });
 });
