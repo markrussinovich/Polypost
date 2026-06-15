@@ -1,4 +1,5 @@
 import type { LlmConfig } from './config';
+import { getFoundryAccessToken } from './entraAuth';
 
 export interface GenerateOptions {
   config: LlmConfig;
@@ -90,27 +91,45 @@ async function generateAnthropic({ config, system, prompt, maxTokens, signal }: 
 
 async function generateOpenAI({ config, system, prompt, maxTokens, signal }: Required<Omit<GenerateOptions, 'signal'>> & { signal?: AbortSignal }): Promise<string> {
   const endpoint = `${trimTrailingSlash(config.baseUrl)}/chat/completions`;
-  const response = await fetch(endpoint, {
+  const authorization = config.authMode === 'entraId'
+    ? `Bearer ${await getFoundryAccessToken(config)}`
+    : `Bearer ${config.apiKey}`;
+
+  const headers = { 'content-type': 'application/json', authorization };
+  const messages = [
+    { role: 'system', content: system },
+    { role: 'user', content: prompt },
+  ];
+
+  // Most models (including older OpenAI-compatible endpoints) use max_tokens.
+  // Newer Azure OpenAI / Foundry models (gpt-5.x, o-series) require max_completion_tokens
+  // and reject max_tokens with a 400. Try max_tokens first; if rejected, retry with
+  // max_completion_tokens.
+  let response = await fetch(endpoint, {
     method: 'POST',
     signal,
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: config.model,
-      max_tokens: maxTokens,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: prompt },
-      ],
-    }),
+    headers,
+    body: JSON.stringify({ model: config.model, max_tokens: maxTokens, messages }),
   });
 
-  const data = await readJson(response);
+  let data = await readJson(response);
 
   if (!response.ok) {
-    throw new LlmError(extractErrorMessage(data) ?? `Request failed (${response.status}).`);
+    const errMsg = extractErrorMessage(data) ?? '';
+    // The model requires max_completion_tokens instead — retry with it.
+    if (response.status === 400 && errMsg.toLowerCase().includes('max_tokens')) {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        signal,
+        headers,
+        body: JSON.stringify({ model: config.model, max_completion_tokens: maxTokens, messages }),
+      });
+      data = await readJson(response);
+    }
+
+    if (!response.ok) {
+      throw new LlmError(extractErrorMessage(data) ?? `Request failed (${response.status}).`);
+    }
   }
 
   const text: string = data?.choices?.[0]?.message?.content ?? '';

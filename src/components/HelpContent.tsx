@@ -29,8 +29,8 @@ export function HelpContent() {
         <ul className="help-list">
           <li>
             Open the gear icon to connect an LLM endpoint — Anthropic (Claude), Google Gemini, or any OpenAI-compatible
-            endpoint that allows browser/CORS requests. Use Test connection to verify it works. Your API key is stored
-            only in this browser.
+            endpoint that allows browser/CORS requests. Use Test connection to verify it works. API keys stay only in
+            this browser; Microsoft Foundry or Azure OpenAI deployments can use Microsoft Entra ID sign-in instead.
           </li>
           <li>Ask the AI to write or improve the main draft from the bar above the editor.</li>
           <li>

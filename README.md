@@ -20,7 +20,7 @@ This is not an official app of any platform. Drafts stay in your browser; the ex
 - **Copy or open.** Use **Copy** for platform-ready text, or **Copy & open** to launch that platform's composer pre-filled (X, Bluesky, Threads, Mastodon).
 - **Mention people.** Write `@[Name]` — it shows as `@Scott Hanselman` on LinkedIn (where the extension resolves it into a real, clickable mention) and collapses to a single handle-style token like `@ScottHanselman` on X, Bluesky, Threads, and Mastodon, so their autocomplete fires on the whole name (and can match a handle) instead of splitting it at the space.
 - **Add media & links once.** Use the **Images & links** tray to reuse an image or link across platforms: links fold into each platform's text and count, and an image can be copied to the clipboard to paste into LinkedIn (or downloaded / dragged into any composer).
-- **Optional AI.** Connect your own LLM key (Anthropic Claude, Google Gemini, or any OpenAI-compatible endpoint) to write, adapt, and auto-fit posts — with documents or URLs as reference context. Your key stays in your browser.
+- **Optional AI.** Connect your own LLM endpoint (Anthropic Claude, Google Gemini, or any OpenAI-compatible endpoint) to write, adapt, and auto-fit posts — with documents or URLs as reference context. Microsoft Foundry / Azure OpenAI compatible deployments can use Microsoft Entra ID sign-in instead of an API key.
 
 ## Features
 

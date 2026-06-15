@@ -1,12 +1,17 @@
 // Optional LLM endpoint configuration. The whole AI feature is inert unless the
-// user enables it and supplies an endpoint + key. Stored locally only.
+// user enables it and supplies the required endpoint credentials. Stored locally only.
 export type LlmProvider = 'anthropic' | 'openai' | 'gemini';
+
+export type LlmAuthMode = 'apiKey' | 'entraId';
 
 export interface LlmConfig {
   enabled: boolean;
   provider: LlmProvider;
+  authMode: LlmAuthMode;
   baseUrl: string;
   apiKey: string;
+  tenantId: string;
+  clientId: string;
   model: string;
   // Auto-rewrite over-limit platforms after a typing pause.
   autoFit: boolean;
@@ -26,16 +31,24 @@ export const PROVIDER_DEFAULTS: Record<LlmProvider, { baseUrl: string; model: st
 
 export const PROVIDER_LABELS: Record<LlmProvider, string> = {
   anthropic: 'Anthropic (Claude)',
-  openai: 'OpenAI-compatible',
+  openai: 'OpenAI-compatible / Microsoft Foundry',
   gemini: 'Google Gemini',
+};
+
+export const AUTH_MODE_LABELS: Record<LlmAuthMode, string> = {
+  apiKey: 'API key',
+  entraId: 'Microsoft Entra ID (SSO / RBAC)',
 };
 
 export function defaultLlmConfig(): LlmConfig {
   return {
     enabled: false,
     provider: 'anthropic',
+    authMode: 'apiKey',
     baseUrl: PROVIDER_DEFAULTS.anthropic.baseUrl,
     apiKey: '',
+    tenantId: '',
+    clientId: '',
     model: PROVIDER_DEFAULTS.anthropic.model,
     autoFit: true,
     stylePrompt: '',
@@ -44,7 +57,15 @@ export function defaultLlmConfig(): LlmConfig {
 
 // The config is usable when enabled and the fields a request needs are present.
 export function isLlmReady(config: LlmConfig): boolean {
-  return config.enabled && Boolean(config.apiKey.trim()) && Boolean(config.baseUrl.trim()) && Boolean(config.model.trim());
+  if (!config.enabled || !config.baseUrl.trim() || !config.model.trim()) {
+    return false;
+  }
+
+  if (config.provider === 'openai' && config.authMode === 'entraId') {
+    return Boolean(config.tenantId.trim()) && Boolean(config.clientId.trim());
+  }
+
+  return Boolean(config.apiKey.trim());
 }
 
 export function loadLlmConfig(): LlmConfig {
