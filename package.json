@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 5173",
+    "dev": "vite --host localhost --port 5173",
     "build": "tsc -b && vite build",
     "build:extension": "tsc -b && vite build --config vite.extension.config.ts",
     "package:extension": "npm run build:extension && node scripts/package-extension.mjs",
@@ -14,6 +14,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@azure/msal-browser": "^4.26.2",
     "@tiptap/extension-character-count": "^2.27.1",
     "@tiptap/extension-link": "^2.27.1",
     "@tiptap/extension-placeholder": "^2.27.1",

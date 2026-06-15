@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { EditorNode } from '../exportText';
 import { xSpec } from '../platforms/x';
@@ -90,7 +90,24 @@ describe('selectAutofit', () => {
 
 describe('llm config', () => {
   beforeEach(() => {
-    window.localStorage.clear();
+    const store = new Map<string, string>();
+    const localStorageMock = {
+      getItem: vi.fn((key: string) => store.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => {
+        store.set(key, value);
+      }),
+      removeItem: vi.fn((key: string) => {
+        store.delete(key);
+      }),
+      clear: vi.fn(() => {
+        store.clear();
+      }),
+    };
+
+    Object.defineProperty(window, 'localStorage', {
+      value: localStorageMock,
+      configurable: true,
+    });
   });
 
   it('is not ready until enabled with endpoint, model, and key', () => {
@@ -99,8 +116,27 @@ describe('llm config', () => {
     expect(isLlmReady({ ...defaultLlmConfig(), enabled: true, apiKey: 'sk-123' })).toBe(true);
   });
 
+  it('accepts Microsoft Entra ID auth for OpenAI-compatible endpoints without an API key', () => {
+    expect(
+      isLlmReady({
+        ...defaultLlmConfig(),
+        enabled: true,
+        provider: 'openai',
+        authMode: 'entraId',
+        tenantId: 'tenant-123',
+        clientId: 'client-456',
+      }),
+    ).toBe(true);
+  });
+
   it('round-trips through localStorage', () => {
-    const config = { ...defaultLlmConfig(), enabled: true, apiKey: 'sk-xyz', model: 'claude-opus-4-8' };
+    const config = {
+      ...defaultLlmConfig(),
+      enabled: true,
+      apiKey: 'sk-xyz',
+      model: 'claude-opus-4-8',
+      provider: 'anthropic' as const,
+    };
     saveLlmConfig(config);
     expect(loadLlmConfig()).toEqual(config);
   });

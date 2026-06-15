@@ -1,7 +1,15 @@
 import { useState } from 'react';
 import { AlertTriangle, Check, Loader, X } from 'lucide-react';
 
-import { PROVIDER_DEFAULTS, PROVIDER_LABELS, isLlmReady, type LlmConfig, type LlmProvider } from '../lib/ai/config';
+import {
+  AUTH_MODE_LABELS,
+  PROVIDER_DEFAULTS,
+  PROVIDER_LABELS,
+  isLlmReady,
+  type LlmAuthMode,
+  type LlmConfig,
+  type LlmProvider,
+} from '../lib/ai/config';
 import { testConnection } from '../lib/ai/llmClient';
 import { useEscape } from '../lib/useEscape';
 
@@ -18,6 +26,7 @@ type TestState =
   | { status: 'error'; message: string };
 
 const PROVIDER_ORDER: LlmProvider[] = ['anthropic', 'openai', 'gemini'];
+const AUTH_MODE_ORDER: LlmAuthMode[] = ['apiKey', 'entraId'];
 
 export function LlmSettings({ config, onSave, onClose }: LlmSettingsProps) {
   const [draft, setDraft] = useState<LlmConfig>(config);
@@ -42,6 +51,10 @@ export function LlmSettings({ config, onSave, onClose }: LlmSettingsProps) {
     });
   }
 
+  function handleAuthModeChange(authMode: LlmAuthMode) {
+    update({ authMode });
+  }
+
   async function handleTest() {
     setTest({ status: 'testing' });
     const result = await testConnection({ ...draft, enabled: true });
@@ -53,10 +66,10 @@ export function LlmSettings({ config, onSave, onClose }: LlmSettingsProps) {
     onSave(draft);
   }
 
-  // The test only needs endpoint/model/key — not the enabled flag.
+  // The test only needs endpoint/model/credentials — not the enabled flag.
   const canTest = isLlmReady({ ...draft, enabled: true });
-  // Auto-fit can only run when AI is enabled AND an endpoint/model/key is set, so
-  // the toggle is disabled otherwise.
+  // Auto-fit can only run when AI is enabled AND the required credentials are
+  // set, so the toggle is disabled otherwise.
   const autofitAvailable = draft.enabled && canTest;
 
   return (
@@ -70,8 +83,8 @@ export function LlmSettings({ config, onSave, onClose }: LlmSettingsProps) {
         </div>
 
         <p className="modal-hint">
-          Connect an LLM endpoint to help write posts and auto-fit them to each platform's limit. Your key is stored only in
-          this browser.
+          Connect an LLM endpoint to help write posts and auto-fit them to each platform's limit. API keys stay in this
+          browser; Microsoft Entra ID sign-in uses your browser session and RBAC.
         </p>
 
         <label className="field-row toggle-row">
@@ -100,10 +113,63 @@ export function LlmSettings({ config, onSave, onClose }: LlmSettingsProps) {
           <input type="text" value={draft.model} placeholder={PROVIDER_DEFAULTS[draft.provider].model} onChange={(event) => update({ model: event.target.value })} />
         </label>
 
-        <label className="field-row">
-          <span>API key</span>
-          <input type="password" value={draft.apiKey} autoComplete="off" placeholder="sk-..." onChange={(event) => update({ apiKey: event.target.value })} />
-        </label>
+        {draft.provider === 'openai' ? (
+          <label className="field-row">
+            <span>Authentication</span>
+            <select value={draft.authMode} onChange={(event) => handleAuthModeChange(event.target.value as LlmAuthMode)}>
+              {AUTH_MODE_ORDER.map((authMode) => (
+                <option key={authMode} value={authMode}>
+                  {AUTH_MODE_LABELS[authMode]}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
+        {draft.provider === 'openai' && draft.authMode === 'entraId' ? (
+          <>
+            <label className="field-row">
+              <span>Tenant ID</span>
+              <input
+                type="text"
+                value={draft.tenantId}
+                autoComplete="off"
+                placeholder="Microsoft Entra tenant ID"
+                onChange={(event) => update({ tenantId: event.target.value })}
+              />
+            </label>
+            <label className="field-row">
+              <span>Client ID</span>
+              <input
+                type="text"
+                value={draft.clientId}
+                autoComplete="off"
+                placeholder="App registration client ID"
+                onChange={(event) => update({ clientId: event.target.value })}
+              />
+            </label>
+            <p className="modal-hint">
+              Use this for Microsoft Foundry or Azure OpenAI deployments configured for Entra ID auth. Sign-in happens
+              through a browser popup when you test or generate.
+              <br /><br />
+              <strong>App registration prerequisite:</strong> in the Azure portal, open the app registration → API
+              permissions → Add a permission → APIs my organization uses → search for{' '}
+              <strong>Azure Machine Learning Services</strong> → Delegated →{' '}
+              <code>user_impersonation</code> → Add, then grant admin consent. On the Foundry resource, assign the{' '}
+              <strong>Foundry User</strong> role to the signed-in user under Access control (IAM). Also add a{' '}
+              Single-page application redirect URI matching this page's origin (e.g.{' '}
+              <code>http://localhost:5173</code>). Use <code>localhost</code>, not{' '}
+              <code>127.0.0.1</code> — Entra ID does not accept <code>127.0.0.1</code> as a redirect URI.
+            </p>
+          </>
+        ) : null}
+
+        {draft.provider !== 'openai' || draft.authMode === 'apiKey' ? (
+          <label className="field-row">
+            <span>API key</span>
+            <input type="password" value={draft.apiKey} autoComplete="off" placeholder="sk-..." onChange={(event) => update({ apiKey: event.target.value })} />
+          </label>
+        ) : null}
 
         <label className="field-row">
           <span>Style guidance (optional)</span>
