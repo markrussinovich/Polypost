@@ -1,6 +1,3 @@
-import { URL_PATTERN } from '../unicodeStyles';
-
-export function containsUrl(text: string): boolean {
-  // Fresh, non-global regex so we don't carry lastIndex state between calls.
-  return new RegExp(URL_PATTERN.source, 'u').test(text);
-}
+// Re-exported so platform warning rules can import URL detection from one place;
+// the implementation (including schemeless/bare-domain matching) lives in urls.ts.
+export { containsUrl } from '../urls';
