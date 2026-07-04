@@ -37,4 +37,15 @@ describe('draft history storage', () => {
 
     expect(loadDraftHistory()).toHaveLength(10);
   });
+
+  it('saves draft sources and attachments with the snapshot', () => {
+    const result = saveDraftSnapshot(document, 'Complete draft', 5, {
+      sources: [{ id: 'src1', kind: 'text', title: 'Reference', text: 'Context', charCount: 7, status: 'ready' }],
+      attachments: [{ id: 'link1', kind: 'link', name: 'Example', url: 'https://example.test', preview: { status: 'ready', title: 'Example' } }],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(loadDraftHistory()[0].sources).toEqual([{ id: 'src1', kind: 'text', title: 'Reference', text: 'Context', charCount: 7, status: 'ready' }]);
+    expect(loadDraftHistory()[0].attachments).toEqual([{ id: 'link1', kind: 'link', name: 'Example', url: 'https://example.test', preview: { status: 'ready', title: 'Example' } }]);
+  });
 });

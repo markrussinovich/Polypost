@@ -22,8 +22,11 @@ export const linkedinSpec: PlatformSpec = {
   truncationLabel: '...more',
   capabilities: {
     copy: true,
+    imageAttachments: true,
     // The composer doesn't accept prefilled text via URL; we just open it.
     openComposer: { url: () => LINKEDIN_COMPOSER_URL, prefillsText: false },
   },
   warnings: [],
+  // LinkedIn shows a compact thumbnail card with the title and domain (no description).
+  linkPreview: { layout: 'thumbnail', showDescription: false },
 };

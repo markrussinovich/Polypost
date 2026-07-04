@@ -45,6 +45,9 @@ export function LlmSettings({ config, onSave, onClose }: LlmSettingsProps) {
   async function handleTest() {
     setTest({ status: 'testing' });
     const result = await testConnection({ ...draft, enabled: true });
+    if (result.ok) {
+      setDraft((prev) => ({ ...prev, enabled: true }));
+    }
     setTest({ status: result.ok ? 'ok' : 'error', message: result.message });
   }
 

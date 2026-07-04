@@ -1,4 +1,6 @@
 import type { EditorNode } from './exportLinkedInText';
+import type { Source } from './ai/sources';
+import type { StoredAttachment } from './media';
 import type { PlatformId } from './platforms/types';
 
 const DRAFT_STORAGE_KEY = 'linkedin-format:draft-v1';
@@ -15,7 +17,12 @@ export interface DraftSnapshot {
   document: EditorNode;
   // Added with multi-platform support; optional so older snapshots stay valid.
   overrides?: Partial<Record<PlatformId, EditorNode>>;
+  // AI-generated per-platform versions (the session-only aiVersions map),
+  // serialized so an AI-adapted card restores as it was. Optional for back-compat.
+  aiVersions?: Partial<Record<PlatformId, EditorNode>>;
   enabledPlatforms?: PlatformId[];
+  sources?: Source[];
+  attachments?: StoredAttachment[];
 }
 
 export interface StoredWorkspace {
@@ -194,7 +201,10 @@ export function loadDraftHistory(): DraftSnapshot[] {
 
 interface DraftSnapshotExtras {
   overrides?: Partial<Record<PlatformId, EditorNode>>;
+  aiVersions?: Partial<Record<PlatformId, EditorNode>>;
   enabledPlatforms?: PlatformId[];
+  sources?: Source[];
+  attachments?: StoredAttachment[];
 }
 
 export function saveDraftSnapshot(
@@ -217,7 +227,10 @@ export function saveDraftSnapshot(
       characterCount,
       document,
       overrides: extras.overrides,
+      aiVersions: extras.aiVersions,
       enabledPlatforms: extras.enabledPlatforms,
+      sources: extras.sources,
+      attachments: extras.attachments,
     };
     const drafts = [draft, ...loadDraftHistory()].slice(0, MAX_DRAFT_HISTORY);
     window.localStorage.setItem(DRAFT_HISTORY_KEY, JSON.stringify(drafts));

@@ -159,11 +159,24 @@ h2 {
   grid-template-columns: 1fr;
 }
 
+/* Multi-column (not grid) so cards pack tightly down each column. A grid would
+   align rows across columns, leaving a tall card's short neighbour with a big gap
+   below it before the next row. */
 .workspace-grid.is-editor-collapsed .platform-rail {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  align-items: start;
+  display: block;
+  columns: 2;
+  column-gap: 16px;
+}
+
+.workspace-grid.is-editor-collapsed .platform-card {
+  margin-bottom: 16px;
+  /* Keep each card whole within a column instead of splitting across the break. */
+  break-inside: avoid;
+}
+
+/* Span the full width above both columns rather than becoming a column item. */
+.workspace-grid.is-editor-collapsed .rail-ai-error {
+  column-span: all;
 }
 
 /* Platform chips share a row with a bare "Hide/Show editor" toggle (no extra row). */
@@ -358,7 +371,7 @@ h2 {
   padding: 12px 14px;
   border: 1px solid rgba(124, 58, 237, 0.22);
   border-radius: var(--radius);
-  background: rgba(124, 58, 237, 0.05);
+  background: rgba(124, 58, 237, 0.1);
 }
 
 .ai-assist.is-disabled {
@@ -425,7 +438,7 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 8px;
+  margin: 8px 0 0 24px;
 }
 
 .ai-suggestion {
@@ -587,9 +600,11 @@ h2 {
 }
 
 /* Freeform user guidance reads in a lighter grey so it's clearly the user's own
-   text, distinct from the bold field labels. */
+   text, distinct from the bold field labels. The purple tint matches the AI
+   authoring panel so the AI-related fields read as a set. */
 .field-row textarea.style-guidance {
   color: var(--muted);
+  background: rgba(124, 58, 237, 0.1);
 }
 
 .test-result {
@@ -866,6 +881,7 @@ h2 {
 }
 
 .workspace-panel {
+  min-width: 0;
   border: 1px solid rgba(100, 116, 139, 0.22);
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.94);
@@ -896,7 +912,6 @@ h2 {
 
 .editor-shell {
   display: flex;
-  min-height: 590px;
   flex-direction: column;
 }
 
@@ -1261,7 +1276,7 @@ h2 {
 }
 
 .rich-editor-content {
-  min-height: 560px;
+  min-height: 225px;
   padding: 26px 30px 36px;
   outline: none;
   color: #1f2937;
@@ -1699,9 +1714,24 @@ h2 {
     grid-template-columns: 1fr;
   }
 
+  /* Single column: shrink the platform chips so all of them stay on one row
+     instead of wrapping. */
+  .platform-chips {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .platform-chip {
+    gap: 5px;
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
   /* On narrow screens the collapsed rail stays single-column. */
   .workspace-grid.is-editor-collapsed .platform-rail {
-    grid-template-columns: 1fr;
+    columns: 1;
   }
 
   /* Rail moves below the editor and scrolls with the page. */
@@ -1725,6 +1755,11 @@ h2 {
 @media (max-width: 640px) {
   .app-header {
     align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  /* Too narrow for seven chips on one row; let them wrap again on phones. */
+  .platform-chips {
     flex-wrap: wrap;
   }
 
@@ -1799,6 +1834,19 @@ h2 {
 [data-theme='dark'] .primary-action:hover:not(:disabled),
 [data-theme='dark'] .primary-action:focus-visible {
   background: #1573d4;
+}
+
+[data-theme='dark'] .secondary-action {
+  border-color: rgba(106, 176, 247, 0.32);
+  background: var(--surface-alt);
+  color: var(--linkedin-blue-dark);
+}
+
+[data-theme='dark'] .secondary-action:hover,
+[data-theme='dark'] .secondary-action:focus-visible {
+  border-color: rgba(149, 197, 251, 0.52);
+  background: #253044;
+  outline: none;
 }
 
 /* Active toolbar button (e.g. Bold when selected): a dark-friendly blue tint with
@@ -1877,6 +1925,91 @@ h2 {
   border-color: var(--linkedin-blue);
 }
 
+/* ---- PWA update toast ---- */
+.update-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  z-index: 1000;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: calc(100vw - 32px);
+  padding: 12px 14px 12px 18px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+}
+
+.update-toast__label {
+  font-size: 0.9rem;
+}
+
+.update-toast__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: none;
+  border-radius: 999px;
+  background: var(--linkedin-blue);
+  color: #ffffff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.update-toast__action:hover,
+.update-toast__action:focus-visible {
+  background: var(--linkedin-blue-dark);
+  outline: none;
+}
+
+/* ---- Reference source preview ---- */
+.modal-card.source-preview {
+  width: min(680px, 100%);
+}
+
+.source-preview-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.source-preview-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--linkedin-blue);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.source-preview-link:hover,
+.source-preview-link:focus-visible {
+  text-decoration: underline;
+}
+
+.source-preview-body {
+  margin: 0;
+  max-height: min(56vh, 520px);
+  overflow-y: auto;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-alt);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 [data-theme='dark'] input:not([type='checkbox']):not([type='radio']),
 [data-theme='dark'] textarea,
 [data-theme='dark'] select {
@@ -1919,9 +2052,9 @@ h2 {
   background: var(--surface-alt);
 }
 
-/* ---- AI reference sources & shared media trays ---- */
-.sources-panel,
-.media-tray {
+/* ---- AI reference sources & image attachment ---- */
+.sources-panel {
+  min-width: 0;
   margin: 0 20px 14px;
   border-top: 1px solid var(--line);
   padding-top: 14px;
@@ -1929,21 +2062,18 @@ h2 {
   font-size: 0.875rem;
 }
 
-.sources-panel summary,
-.media-tray summary {
+.sources-panel summary {
   color: var(--ink);
   font-weight: 800;
   cursor: pointer;
 }
 
-.sources-hint,
-.media-hint {
+.sources-hint {
   margin: 10px 0 0;
   line-height: 1.4;
 }
 
-.sources-actions,
-.media-actions {
+.sources-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1951,26 +2081,99 @@ h2 {
   margin-top: 12px;
 }
 
-/* Compact "Add" controls in the media tray (the extra .media-tray scope raises
-   specificity above .secondary-action/.primary-action). */
-.media-tray .media-add,
-.media-tray .media-add-confirm {
-  min-height: 28px;
-  padding: 0 10px;
-  gap: 5px;
-  font-size: 0.78rem;
+.image-attachment-panel {
+  margin: 0 20px 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  color: var(--muted);
+  font-size: 0.875rem;
 }
 
-/* File inputs ride inside a label styled as a secondary-action button. */
-.sources-file,
-.media-file {
+.image-attachment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.image-add-button {
   position: relative;
   overflow: hidden;
   cursor: pointer;
 }
 
-.sources-file input,
-.media-file input {
+.image-add-button input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.image-copy-button.is-copied {
+  color: #15803d;
+}
+
+.image-copy-button.is-error {
+  color: var(--danger);
+}
+
+.image-attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+}
+
+.image-attachment-thumb {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--surface-alt);
+}
+
+.image-attachment-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.image-remove-button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.image-remove-button:hover {
+  background: var(--surface-alt);
+  color: var(--ink);
+}
+
+/* File inputs ride inside a label styled as a secondary-action button. */
+.sources-file {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.sources-file input {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -1983,16 +2186,14 @@ h2 {
   color: var(--linkedin-blue-dark);
 }
 
-.sources-input-row,
-.media-link-row {
+.sources-input-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
 }
 
-.sources-input-row input,
-.media-link-row input {
+.sources-input-row input {
   flex: 1 1 200px;
   min-width: 0;
   min-height: 36px;
@@ -2037,16 +2238,18 @@ h2 {
   color: var(--danger);
 }
 
-.sources-list,
-.media-list {
+.sources-list {
   display: grid;
   gap: 8px;
+  min-width: 0;
   margin: 12px 0 0;
   padding: 0;
   list-style: none;
 }
 
 .source-item {
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px;
@@ -2061,6 +2264,21 @@ h2 {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+
+.source-item-head.is-openable {
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.source-item-head.is-openable:hover {
+  background: var(--surface-alt);
+}
+
+.source-item-head.is-openable:focus-visible {
+  outline: 2px solid var(--linkedin-blue);
+  outline-offset: 2px;
 }
 
 .source-icon {
@@ -2092,10 +2310,7 @@ h2 {
   font-size: 0.8125rem;
 }
 
-.source-remove,
-.media-remove,
-.media-download,
-.media-copy {
+.source-remove {
   display: inline-grid;
   place-items: center;
   width: 26px;
@@ -2108,122 +2323,168 @@ h2 {
   cursor: pointer;
 }
 
-.source-remove:hover,
-.media-remove:hover,
-.media-download:hover,
-.media-copy:hover {
+.source-remove:hover {
   background: var(--surface-alt);
   color: var(--ink);
-}
-
-.media-copy.is-copied {
-  color: #15803d;
-}
-
-.media-copy.is-error {
-  color: var(--danger);
-}
-
-/* File items can be dragged out into a platform's composer. */
-.media-item.is-image,
-.media-item.is-video {
-  cursor: grab;
 }
 
 .source-fallback {
   display: grid;
   gap: 8px;
+  min-width: 0;
   margin-top: 10px;
 }
 
 .source-fallback-note {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
   margin: 0;
   color: var(--danger);
+  overflow-wrap: anywhere;
 }
 
 .source-fallback .secondary-action {
   justify-self: start;
 }
 
-/* Media list items */
-.media-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 10px;
-  background: var(--surface);
-}
-
-.media-thumb {
-  width: 40px;
-  height: 40px;
-  flex: 0 0 auto;
-  object-fit: cover;
-  border-radius: 6px;
-  background: var(--surface-alt);
-}
-
-.media-link-icon {
-  display: inline-grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  flex: 0 0 auto;
-  border-radius: 6px;
-  color: var(--linkedin-blue-dark);
-  background: var(--surface-alt);
-}
-
-.media-item-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ink);
-}
-
-/* Per-card attachment strip */
-.card-attachments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+/* Per-platform link-unfurl preview card — mirrors how each platform renders a
+   detected URL once posted. Purely illustrative (not part of the copied text). */
+.card-link-preview {
+  display: block;
   margin: 0 0 12px;
-}
-
-.card-attachment {
-  display: inline-flex;
-  align-items: center;
-}
-
-/* A reference tag — deliberately not button-shaped: dashed edge + tinted fill. */
-.card-attachment.is-link {
-  gap: 5px;
-  max-width: 100%;
-  border: 1px dashed rgba(10, 102, 194, 0.4);
-  border-radius: 6px;
-  padding: 3px 8px;
-  color: var(--linkedin-blue-dark);
-  background: rgba(10, 102, 194, 0.07);
-  font-size: 0.78rem;
-  font-weight: 600;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface, #fff);
+  color: inherit;
   text-decoration: none;
 }
 
-.card-attachment.is-link:hover {
-  background: rgba(10, 102, 194, 0.12);
-  text-decoration: underline;
+.card-link-preview:hover {
+  border-color: rgba(100, 116, 139, 0.45);
 }
 
-.card-attachment-name {
+/* Thumbnail layout (e.g. Mastodon): small image on the left, text on the right. */
+.card-link-preview.is-thumbnail {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  align-items: stretch;
+}
+
+.card-link-preview.is-linkedin.is-thumbnail {
+  grid-template-columns: minmax(112px, 32%) 1fr;
+  min-height: 96px;
+}
+
+.card-link-preview-media {
+  position: relative;
+  background: var(--surface-alt, rgba(15, 23, 42, 0.05));
+  overflow: hidden;
+}
+
+.card-link-preview.is-large .card-link-preview-media {
+  aspect-ratio: 1.91 / 1;
+}
+
+.card-link-preview-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.card-link-preview-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 56px;
+  opacity: 0.6;
+}
+
+.card-link-preview-skeleton {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 56px;
+  background: linear-gradient(100deg, rgba(120, 130, 150, 0.1) 30%, rgba(120, 130, 150, 0.2) 50%, rgba(120, 130, 150, 0.1) 70%);
+  background-size: 200% 100%;
+  animation: card-link-preview-shimmer 1.3s ease-in-out infinite;
+}
+
+@keyframes card-link-preview-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+.card-link-preview-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 11px;
+  min-width: 0;
+}
+
+.card-link-preview.is-linkedin .card-link-preview-body {
+  justify-content: center;
+  padding: 12px 14px;
+}
+
+.card-link-preview-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 200px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.card-link-preview-desc {
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.card-link-preview-domain {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 1px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: lowercase;
+}
+
+.card-link-preview-favicon {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.card-image-preview {
+  margin: 0 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-alt, rgba(15, 23, 42, 0.05));
+}
+
+.card-image-preview img {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
 }
 

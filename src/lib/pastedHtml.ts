@@ -1,7 +1,7 @@
 const REMOVED_SELECTORS = 'style, script, meta, link, xml, img, table';
 const EMPTY_BLOCK_SELECTOR = 'p, h1, h2, h3, h4, h5, h6, div';
 
-export function sanitizePastedHTML(html: string): string {
+export function sanitizePastedHTML(html: string, plainText = ''): string {
   if (typeof document === 'undefined') {
     return fallbackSanitizePastedHTML(html);
   }
@@ -19,7 +19,7 @@ export function sanitizePastedHTML(html: string): string {
     stripNoisyAttributes(element);
   });
 
-  removeEmptyBlocks(template.content);
+  removeEmptyBlocks(template.content, countBlankTextLines(plainText));
 
   // Trim leading/trailing whitespace: Word wraps content in <html>/<body> and
   // the whitespace between those tags survives as edge text, which ProseMirror
@@ -38,11 +38,10 @@ function removeOfficeNamespacedElements(root: DocumentFragment) {
   }
 }
 
-// After cleanup, remove block elements that carry no real content (empty Word
-// spacer paragraphs, or blocks left holding only whitespace / line breaks).
-// Paragraph spacing in the editor handles separation, so dropping these is what
-// stops pasted Word documents from gaining extra newlines.
-function removeEmptyBlocks(root: DocumentFragment) {
+// After cleanup, remove block elements that carry no real content. Preserve
+// intentional Outlook spacer paragraphs only when the plain-text clipboard data
+// confirms a blank line between real content blocks.
+function removeEmptyBlocks(root: DocumentFragment, blankLinesToPreserve = 0) {
   // Innermost-first so an emptied wrapper is removed after its empty children.
   const blocks = Array.from(root.querySelectorAll(EMPTY_BLOCK_SELECTOR)).reverse();
 
@@ -54,9 +53,60 @@ function removeEmptyBlocks(root: DocumentFragment) {
     const text = (block.textContent ?? '').replace(/ /g, ' ').trim();
 
     if (!text) {
+      if (blankLinesToPreserve > 0 && hasContentSibling(block, 'previous') && hasContentSibling(block, 'next')) {
+        block.replaceChildren();
+        blankLinesToPreserve -= 1;
+        continue;
+      }
+
       block.remove();
     }
   }
+}
+
+function countBlankTextLines(text: string): number {
+  const lines = text
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/ /g, ' ').trim());
+  const firstContent = lines.findIndex(Boolean);
+
+  if (firstContent === -1) {
+    return 0;
+  }
+
+  let lastContent = lines.length - 1;
+
+  while (lastContent > firstContent && !lines[lastContent]) {
+    lastContent -= 1;
+  }
+
+  return lines
+    .slice(firstContent, lastContent + 1)
+    .filter((line) => !line)
+    .length;
+}
+
+function hasContentSibling(element: Element, direction: 'previous' | 'next'): boolean {
+  let sibling = direction === 'previous' ? element.previousSibling : element.nextSibling;
+
+  while (sibling) {
+    if (sibling.nodeType === Node.TEXT_NODE) {
+      if (sibling.textContent?.replace(/ /g, ' ').trim()) {
+        return true;
+      }
+    } else if (sibling instanceof Element && hasRealContent(sibling)) {
+      return true;
+    }
+
+    sibling = direction === 'previous' ? sibling.previousSibling : sibling.nextSibling;
+  }
+
+  return false;
+}
+
+function hasRealContent(element: Element): boolean {
+  return Boolean(element.querySelector('img, hr, li') || element.textContent?.replace(/ /g, ' ').trim());
 }
 
 function removeComments(root: DocumentFragment) {

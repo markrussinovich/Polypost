@@ -14,6 +14,7 @@ export const xSpec: PlatformSpec = {
   truncationLabel: '',
   capabilities: {
     copy: true,
+    imageAttachments: true,
     openComposer: {
       // x.com is the canonical intent host; twitter.com/intent/tweet still redirects.
       url: (text) => `https://x.com/intent/post?text=${encodeURIComponent(text)}`,
@@ -22,4 +23,6 @@ export const xSpec: PlatformSpec = {
   },
   warnings: [],
   disclaimer: 'Counts are an estimate: links count as 23 characters and some complex emoji may count as more.',
+  // X shows a summary_large_image card: big image, title, domain — no description.
+  linkPreview: { layout: 'large', showDescription: false },
 };

@@ -60,7 +60,7 @@ export function handleEditorPaste(editor: Editor, event: ClipboardEvent) {
     // Parse to nodes via generateJSON rather than passing the HTML string to
     // insertContent: insertContent treats whitespace between block tags as
     // empty paragraphs, reintroducing the blank lines we just stripped.
-    const document = generateJSON(sanitizePastedHTML(html), editorExtensions) as EditorNode;
+    const document = generateJSON(sanitizePastedHTML(html, plainText), editorExtensions) as EditorNode;
     editor.commands.insertContent(document.content ?? []);
   }
 }

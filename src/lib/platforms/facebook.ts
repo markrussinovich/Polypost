@@ -17,9 +17,12 @@ export const facebookSpec: PlatformSpec = {
   truncationLabel: 'See more',
   capabilities: {
     copy: true,
+    imageAttachments: true,
     // Facebook's sharer only accepts a URL, not arbitrary text, so we just open
     // the composer; the post text is on the clipboard for pasting.
     openComposer: { url: () => 'https://www.facebook.com/', prefillsText: false },
   },
   warnings: [],
+  // Facebook shows a large image card with the domain, title, and description.
+  linkPreview: { layout: 'large', showDescription: true },
 };

@@ -47,8 +47,16 @@ export async function testConnection(config: LlmConfig, signal?: AbortSignal): P
     });
     return { ok: true, message: `Connected. Model replied: "${reply.slice(0, 40)}"` };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : 'Connection failed.' };
+    const message = error instanceof Error ? error.message : 'Connection failed.';
+    return { ok: false, message: redactApiKey(message, config.apiKey) };
   }
+}
+
+// Defensively strip the API key from any error text before surfacing it, since
+// provider or network errors can echo back the request URL or headers.
+function redactApiKey(message: string, apiKey: string): string {
+  if (!apiKey) return message;
+  return message.split(apiKey).join('[redacted]');
 }
 
 async function generateAnthropic({ config, system, prompt, maxTokens, signal }: Required<Omit<GenerateOptions, 'signal'>> & { signal?: AbortSignal }): Promise<string> {
@@ -99,7 +107,9 @@ async function generateOpenAI({ config, system, prompt, maxTokens, signal }: Req
     },
     body: JSON.stringify({
       model: config.model,
-      max_tokens: maxTokens,
+      // Newer OpenAI models reject the legacy `max_tokens` and require
+      // `max_completion_tokens` instead.
+      max_completion_tokens: maxTokens,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: prompt },

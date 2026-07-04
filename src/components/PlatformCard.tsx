@@ -1,12 +1,14 @@
 import { useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Copy, ExternalLink, Link2, Loader, Pencil, RotateCcw, Sparkles } from 'lucide-react';
+import { AlertTriangle, Check, Copy, ExternalLink, Loader, Pencil, RotateCcw, Sparkles } from 'lucide-react';
 
 import { copyPlainText } from '../lib/clipboard';
 import { exportText, type EditorNode } from '../lib/exportText';
+import { lastUrlInText } from '../lib/linkPreview';
 import { parseMentionSegments } from '../lib/mentions';
-import type { Attachment } from '../lib/media';
+import { copyImageToClipboard, type Attachment, type LinkPreview } from '../lib/media';
 import type { PlatformRender, PlatformSpec } from '../lib/platforms/types';
 import { collapseToPreview, isTextTruncated, type PreviewMode } from '../lib/truncation';
+import { CardImagePreview, CardLinkPreview } from './CardLinkPreview';
 import { CharacterMeter } from './CharacterMeter';
 import { PaneEditor } from './PaneEditor';
 import { PLATFORM_ICONS } from './platformIcons';
@@ -19,9 +21,10 @@ interface PlatformCardProps {
   isForked: boolean;
   // Holds an AI-fitted version (and isn't user-forked).
   isAiAdapted: boolean;
-  // Shared media & links surfaced on every card. Links are already folded into
-  // render.text; files (image/video) show as download/drag handles here.
-  attachments: Attachment[];
+  // One selected image shown instead of URL previews, matching platform behavior.
+  imageAttachment: Attachment | null;
+  // Fetched metadata for URLs found in platform text, keyed by URL.
+  linkPreviews: ReadonlyMap<string, LinkPreview>;
   // An AI fit is in flight for this platform.
   isGenerating: boolean;
   // AI endpoint is configured, so the "Adapt with AI" action is available.
@@ -46,7 +49,8 @@ export function PlatformCard({
   document,
   isForked,
   isAiAdapted,
-  attachments,
+  imageAttachment,
+  linkPreviews,
   isGenerating,
   aiReady,
   isEditing,
@@ -79,12 +83,19 @@ export function PlatformCard({
   const hasText = Boolean(render.text.trim());
   const showCollapsed = truncated && !expanded && activeCutoff !== null;
   const displayText = showCollapsed && activeCutoff ? collapseToPreview(render.text, activeCutoff) : render.text;
+  const imagePreviewAttachment = spec.capabilities.imageAttachments ? imageAttachment : null;
   // The flattened mention strings present in this platform's text, so they can be
   // highlighted in the preview the same way the editor highlights @[Name] tokens.
   const mentionStrings = useMemo(() => collectMentionStrings(document, spec), [document, spec]);
+  const previewUrl = useMemo(
+    () => (!imagePreviewAttachment && spec.linkPreview ? lastUrlInText(render.text) : undefined),
+    [imagePreviewAttachment, render.text, spec.linkPreview],
+  );
 
   const [copyFlash, setCopyFlash] = useState<CopyFlash>('idle');
+  const [imageCopyFlash, setImageCopyFlash] = useState<CopyFlash>('idle');
   const flashTimer = useRef<number | null>(null);
+  const imageFlashTimer = useRef<number | null>(null);
 
   function flash(state: CopyFlash) {
     setCopyFlash(state);
@@ -94,6 +105,29 @@ export function PlatformCard({
     }
 
     flashTimer.current = window.setTimeout(() => setCopyFlash('idle'), 1800);
+  }
+
+  function flashImage(state: CopyFlash) {
+    setImageCopyFlash(state);
+
+    if (imageFlashTimer.current) {
+      window.clearTimeout(imageFlashTimer.current);
+    }
+
+    imageFlashTimer.current = window.setTimeout(() => setImageCopyFlash('idle'), 1800);
+  }
+
+  async function handleCopyImage() {
+    if (!imagePreviewAttachment) {
+      return;
+    }
+
+    try {
+      await copyImageToClipboard(imagePreviewAttachment);
+      flashImage('copied');
+    } catch {
+      flashImage('error');
+    }
   }
 
   async function handleCopy() {
@@ -206,7 +240,8 @@ export function PlatformCard({
         )}
       </div>
 
-      {!isEditing ? <CardAttachments attachments={attachments} platformLabel={spec.label} /> : null}
+      {!isEditing && imagePreviewAttachment ? <CardImagePreview image={imagePreviewAttachment} spec={spec} /> : null}
+      {!isEditing && !imagePreviewAttachment && previewUrl ? <CardLinkPreview url={previewUrl} preview={linkPreviews.get(previewUrl)} spec={spec} /> : null}
 
       {render.warnings.length > 0 ? (
         <ul className="platform-card-warnings">
@@ -222,6 +257,12 @@ export function PlatformCard({
       <CharacterMeter summary={render.summary} disclaimer={spec.disclaimer} />
 
       <footer className="platform-card-buttons">
+        {imagePreviewAttachment ? (
+          <button type="button" className="card-copy-button" onClick={handleCopyImage}>
+            <Copy aria-hidden="true" size={15} />
+            {imageCopyFlash === 'copied' ? 'Image copied!' : imageCopyFlash === 'error' ? 'Copy image failed' : 'Copy image'}
+          </button>
+        ) : null}
         <button type="button" className="card-copy-button" disabled={!hasText} onClick={handleCopy}>
           <Copy aria-hidden="true" size={15} />
           {copyFlash === 'copied' ? 'Copied!' : copyFlash === 'error' ? 'Copy failed' : 'Copy'}
@@ -234,28 +275,6 @@ export function PlatformCard({
         ) : null}
       </footer>
     </article>
-  );
-}
-
-// Shared links shown on each card as a reference chip. The URL is already in the
-// post text (and counted); image/video files live only in the Media tray (not on
-// the previews) since a text copy can't carry them into a platform's composer.
-function CardAttachments({ attachments, platformLabel }: { attachments: Attachment[]; platformLabel: string }) {
-  const links = attachments.filter((attachment) => attachment.kind === 'link');
-
-  if (links.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="card-attachments" aria-label={`Links for ${platformLabel}`}>
-      {links.map((attachment) => (
-        <a key={attachment.id} className="card-attachment is-link" href={attachment.url} target="_blank" rel="noreferrer noopener" title={attachment.url}>
-          <Link2 aria-hidden="true" size={13} />
-          <span className="card-attachment-name">{attachment.name}</span>
-        </a>
-      ))}
-    </div>
   );
 }
 

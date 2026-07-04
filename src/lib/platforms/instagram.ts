@@ -15,7 +15,7 @@ export const instagramSpec: PlatformSpec = {
   },
   truncationLabel: '... more',
   // No web composer that accepts caption text; copy-only.
-  capabilities: { copy: true },
+  capabilities: { copy: true, imageAttachments: true },
   warnings: [
     {
       id: 'instagram-links',

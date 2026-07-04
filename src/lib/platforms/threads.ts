@@ -15,6 +15,7 @@ export const threadsSpec: PlatformSpec = {
   truncationLabel: '... more',
   capabilities: {
     copy: true,
+    imageAttachments: true,
     // Threads migrated to threads.com (April 2025); threads.net still redirects.
     openComposer: {
       // Threads' intent endpoint turns emoji in the `text` query param into "?".
@@ -28,4 +29,6 @@ export const threadsSpec: PlatformSpec = {
     },
   },
   warnings: [],
+  // Threads unfurls a large image card with title and domain.
+  linkPreview: { layout: 'large', showDescription: false },
 };

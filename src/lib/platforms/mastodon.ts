@@ -17,7 +17,11 @@ export const mastodonSpec: PlatformSpec = {
     // Copy only: Mastodon is federated, so there is no universal compose/intent URL
     // (it would need the user's home-instance domain).
     copy: true,
+    imageAttachments: true,
   },
   warnings: [],
+  // Mastodon renders a compact card: small thumbnail on the left, title,
+  // description, and domain on the right.
+  linkPreview: { layout: 'thumbnail', showDescription: true },
   disclaimer: 'Links count as 23 characters. 500 is the default limit and can vary by instance.',
 };

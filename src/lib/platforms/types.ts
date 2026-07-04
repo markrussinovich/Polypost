@@ -30,10 +30,22 @@ export interface PlatformSpec {
   // are removed ("@ScottHanselman") so handle-based platforms' autocomplete fires
   // on the whole name instead of splitting it at the space.
   keepMentionSpaces?: boolean;
+  // How this platform unfurls a URL into a preview card. Data-only; the
+  // card UI reads it to mirror each platform's real layout. Absent ⇒ no preview.
+  linkPreview?: LinkCardStyle;
+}
+
+// Describes how a platform renders a link's unfurl card, so the preview matches
+// what the user will actually see once posted.
+export interface LinkCardStyle {
+  // 'large' ⇒ hero image on top; 'thumbnail' ⇒ small image on the left.
+  layout: 'large' | 'thumbnail';
+  showDescription: boolean;
 }
 
 export interface PlatformCapabilities {
   copy: true;
+  imageAttachments?: true;
   openComposer?: OpenComposerCapability;
   // publish?: PublishCapability;  // future: post via API; impl in src/lib/publishing/
 }

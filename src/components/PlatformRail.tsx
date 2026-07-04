@@ -1,7 +1,7 @@
 import { AlertTriangle } from 'lucide-react';
 
 import type { EditorNode } from '../lib/exportText';
-import type { Attachment } from '../lib/media';
+import type { Attachment, LinkPreview } from '../lib/media';
 import type { PlatformId, PlatformRender, PlatformSpec } from '../lib/platforms/types';
 import { PlatformCard } from './PlatformCard';
 
@@ -13,8 +13,10 @@ interface PlatformRailProps {
   documents: Map<PlatformId, EditorNode>;
   forkedIds: Set<PlatformId>;
   aiAdaptedIds: ReadonlySet<PlatformId>;
-  // Shared media & links, surfaced on every card.
-  attachments: Attachment[];
+  // One selected image shown instead of URL previews, matching platform behavior.
+  imageAttachment: Attachment | null;
+  // Fetched metadata for URLs found in platform text, keyed by URL.
+  linkPreviews: ReadonlyMap<string, LinkPreview>;
   generatingIds: ReadonlySet<PlatformId>;
   aiReady: boolean;
   aiError: string | null;
@@ -33,7 +35,8 @@ export function PlatformRail({
   documents,
   forkedIds,
   aiAdaptedIds,
-  attachments,
+  imageAttachment,
+  linkPreviews,
   generatingIds,
   aiReady,
   aiError,
@@ -76,7 +79,8 @@ export function PlatformRail({
             document={document}
             isForked={forkedIds.has(spec.id)}
             isAiAdapted={aiAdaptedIds.has(spec.id)}
-            attachments={attachments}
+            imageAttachment={imageAttachment}
+            linkPreviews={linkPreviews}
             isGenerating={generatingIds.has(spec.id)}
             aiReady={aiReady}
             isEditing={editingId === spec.id}

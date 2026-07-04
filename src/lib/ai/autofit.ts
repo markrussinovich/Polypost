@@ -16,25 +16,22 @@ export interface AutofitInput {
   userForkedIds: ReadonlySet<PlatformId>;
   // Platforms that currently hold an AI-generated version.
   aiVersionIds: ReadonlySet<PlatformId>;
-  // Shared links appended to every platform's text; counted toward the limit, so
-  // a link that pushes a platform over its limit must trigger a fit.
-  linkUrls?: string[];
 }
 
-function masterOverLimit(master: EditorNode, id: PlatformId, linkUrls: string[]): boolean {
+function masterOverLimit(master: EditorNode, id: PlatformId): boolean {
   const spec = PLATFORMS_BY_ID[id];
-  return spec ? renderForPlatform(master, spec, { linkUrls }).summary.count > spec.charLimit : false;
+  return spec ? renderForPlatform(master, spec).summary.count > spec.charLimit : false;
 }
 
 // Decides which platforms the idle auto-fit pass should (re)generate and which
 // stale AI versions to drop. Pure — drives the debounced effect in App.
-export function selectAutofit({ master, enabledPlatforms, userForkedIds, aiVersionIds, linkUrls = [] }: AutofitInput): AutofitSelection {
+export function selectAutofit({ master, enabledPlatforms, userForkedIds, aiVersionIds }: AutofitInput): AutofitSelection {
   const enabled = new Set(enabledPlatforms);
 
-  const toFit = enabledPlatforms.filter((id) => !userForkedIds.has(id) && masterOverLimit(master, id, linkUrls));
+  const toFit = enabledPlatforms.filter((id) => !userForkedIds.has(id) && masterOverLimit(master, id));
 
   const toClear = [...aiVersionIds].filter(
-    (id) => !enabled.has(id) || userForkedIds.has(id) || !masterOverLimit(master, id, linkUrls),
+    (id) => !enabled.has(id) || userForkedIds.has(id) || !masterOverLimit(master, id),
   );
 
   return { toFit, toClear };

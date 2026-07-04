@@ -29,23 +29,13 @@ export const PLATFORMS_BY_ID = Object.fromEntries(
   PLATFORMS.map((spec) => [spec.id, spec]),
 ) as Record<PlatformId, PlatformSpec>;
 
-export interface RenderOptions {
-  // Shared link attachments folded into the post text as a trailing block, so the
-  // copied/opened text and the character count include them (see lib/media.ts).
-  linkUrls?: string[];
-}
-
 // The single source of truth for a platform's final text. The preview rail,
 // copy/intent actions, and any future publish path all run through here so what
 // gets posted is exactly what the preview showed.
-export function renderForPlatform(doc: EditorNode, spec: PlatformSpec, options?: RenderOptions): PlatformRender {
+export function renderForPlatform(doc: EditorNode, spec: PlatformSpec): PlatformRender {
   // The web app never resolves real mentions (it only copies/previews), so
   // @[Name] tokens flatten to plain "@Name" for every platform.
-  const body = flattenMentionTokens(exportText(doc, { unicodeStyling: spec.allowUnicodeStyling }), { collapseSpaces: !(spec.keepMentionSpaces ?? false) });
-  const links = options?.linkUrls ?? [];
-  // Append shared links only when there's body text — bare links on an empty
-  // draft would render a post that's just URLs.
-  const text = links.length && body.trim() ? `${body}\n\n${links.join('\n')}` : body;
+  const text = flattenMentionTokens(exportText(doc, { unicodeStyling: spec.allowUnicodeStyling }), { collapseSpaces: !(spec.keepMentionSpaces ?? false) });
   const count = countCharacters(text, spec.counting);
   const status = getCharacterCountStatus(count, spec.charLimit, spec.warningThreshold);
   const warnings = spec.warnings.filter((rule) => rule.applies(text, doc));

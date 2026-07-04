@@ -20,7 +20,7 @@ export function HelpModal({ onClose }: HelpModalProps) {
           </button>
         </div>
         <div className="help-scroll">
-          <HelpContent />
+          <HelpContent webApp />
         </div>
       </div>
     </div>

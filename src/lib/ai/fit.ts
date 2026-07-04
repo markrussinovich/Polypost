@@ -21,23 +21,6 @@ export interface FitOptions {
   style?: string;
   signal?: AbortSignal;
   maxAttempts?: number;
-  // Shared links that the card appends after the post text. They consume part of
-  // the platform's limit, so the fit aims the text at (charLimit - link cost).
-  linkUrls?: string[];
-}
-
-// How many characters the appended links cost for this platform (URL-weighting
-// and the joining newlines included). Computed against a non-empty sample so the
-// links actually render; stable regardless of the body for additive counters.
-export function linkReserve(spec: PlatformSpec, linkUrls: string[]): number {
-  if (linkUrls.length === 0) {
-    return 0;
-  }
-
-  const sample: EditorNode = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }] };
-  const withLinks = renderForPlatform(sample, spec, { linkUrls }).summary.count;
-  const withoutLinks = renderForPlatform(sample, spec).summary.count;
-  return Math.max(0, withLinks - withoutLinks);
 }
 
 // Measures a candidate exactly the way its preview card will (same render path),
@@ -52,10 +35,8 @@ function measure(text: string, spec: PlatformSpec): { doc: EditorNode; count: nu
 // Generates a platform-fitted version, then deterministically checks the length
 // and re-prompts the model to shorten until it fits (or attempts run out). The
 // model isn't trusted to count — we verify and feed the real overage back.
-export async function generateFit({ config, spec, masterText, style, signal, maxAttempts = 4, linkUrls = [] }: FitOptions): Promise<FitResult> {
-  // The model writes the post text; the card appends links on top. So the text
-  // itself must fit within the limit minus what the links cost.
-  const effectiveLimit = Math.max(1, spec.charLimit - linkReserve(spec, linkUrls));
+export async function generateFit({ config, spec, masterText, style, signal, maxAttempts = 4 }: FitOptions): Promise<FitResult> {
+  const effectiveLimit = spec.charLimit;
   const base = buildFitRequest(spec, masterText, style, effectiveLimit);
   let best: { doc: EditorNode; text: string; count: number } | null = null;
   let feedback = '';

@@ -7,24 +7,22 @@ import { DraftHistoryPanel } from './components/DraftHistoryPanel';
 import { EditorShell } from './components/EditorShell';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { HelpModal } from './components/HelpModal';
+import { ImageAttachmentControl } from './components/ImageAttachmentControl';
+import { InstallButton } from './components/InstallButton';
 import { LlmSettings } from './components/LlmSettings';
-import { MediaTray } from './components/MediaTray';
 import { PolypostMark } from './components/PolypostMark';
+import { UpdatePrompt } from './components/UpdatePrompt';
 import { PlatformRail } from './components/PlatformRail';
 import { PlatformToggleChips } from './components/PlatformToggleChips';
 import { loadTheme, saveTheme, type Theme } from './lib/theme';
 import { selectAutofit } from './lib/ai/autofit';
 import { isLlmReady, loadLlmConfig, saveLlmConfig, type LlmConfig } from './lib/ai/config';
-import { docToPlainText } from './lib/ai/docText';
+import { docToMarkdown, docToPlainText } from './lib/ai/docText';
 import { buildSourcesBlock, loadSources, saveSources, type Source } from './lib/ai/sources';
-import {
-  linkUrls,
-  loadAttachments,
-  revokeAttachment,
-  saveAttachments,
-  type Attachment,
-} from './lib/media';
 import { markdownToTipTap } from './lib/markdownToTipTap';
+import { fetchLinkPreview, lastUrlInText, shouldRefreshLinkPreview } from './lib/linkPreview';
+import { revokeAttachment, type Attachment, type LinkPreview } from './lib/media';
+import { clearActiveAttachment, loadActiveAttachment, putActiveAttachment } from './lib/attachmentStore';
 import { generateFit } from './lib/ai/fit';
 import { generateText } from './lib/ai/llmClient';
 import { buildAuthorRequest } from './lib/ai/prompts';
@@ -90,10 +88,11 @@ function App() {
   const [authorBusy, setAuthorBusy] = useState(false);
   const [authorError, setAuthorError] = useState<string | null>(null);
 
-  // Reference material handed to the AI as background (persisted), and shared
-  // media/links surfaced on every platform card (links persisted, files session-only).
+  // Reference material handed to the AI as background (persisted).
   const [sources, setSources] = useState<Source[]>(loadSources);
-  const [attachments, setAttachments] = useState<Attachment[]>(loadAttachments);
+  const [imageAttachment, setImageAttachment] = useState<Attachment | null>(null);
+  const [linkPreviews, setLinkPreviews] = useState<Map<string, LinkPreview>>(() => new Map());
+  const [debouncedPlatformPreviewUrls, setDebouncedPlatformPreviewUrls] = useState<string[]>([]);
 
   const aiReady = isLlmReady(llmConfig);
 
@@ -102,6 +101,9 @@ function App() {
     aiVersionsRef.current = aiVersions;
   }, [aiVersions]);
   const fitAbortRef = useRef<AbortController | null>(null);
+  // Link preview states whose fetch has already been kicked off, so failed or
+  // low-value metadata can retry once without looping forever.
+  const startedPreviewKeys = useRef<Set<string>>(new Set());
 
   // Apply + persist the color theme.
   useEffect(() => {
@@ -119,20 +121,43 @@ function App() {
     }
   }, [workspace]);
 
-  // Persist AI sources and shared links (file attachments are session-only and
-  // ignored by saveAttachments).
+  // Persist AI sources.
   useEffect(() => {
     saveSources(sources);
   }, [sources]);
 
+  // Restore a persisted image/video attachment so it survives reload/restart
+  // (PWA). Yields to any attachment the user adds before the load resolves.
   useEffect(() => {
-    saveAttachments(attachments);
-  }, [attachments]);
+    let cancelled = false;
+
+    void loadActiveAttachment().then((restored) => {
+      if (!restored) {
+        return;
+      }
+
+      if (cancelled) {
+        revokeAttachment(restored);
+        return;
+      }
+
+      setImageAttachment((prev) => {
+        if (prev) {
+          revokeAttachment(restored);
+          return prev;
+        }
+
+        return restored;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // One render + seed document per enabled platform. The document each platform
   // renders/edits from: a user fork wins, then an AI-fitted version, then master.
-  const sharedLinkUrls = useMemo(() => linkUrls(attachments), [attachments]);
-
   const { platformRenders, platformDocuments } = useMemo(() => {
     const renders = new Map<PlatformId, PlatformRender>();
     const documents = new Map<PlatformId, EditorNode>();
@@ -143,12 +168,75 @@ function App() {
       if (spec) {
         const doc = workspace.overrides[id] ?? aiVersions.get(id) ?? workspace.master;
         documents.set(id, doc);
-        renders.set(id, renderForPlatform(doc, spec, { linkUrls: sharedLinkUrls }));
+        renders.set(id, renderForPlatform(doc, spec));
       }
     }
 
     return { platformRenders: renders, platformDocuments: documents };
-  }, [workspace, aiVersions, sharedLinkUrls]);
+  }, [workspace, aiVersions]);
+
+  const platformPreviewUrls = useMemo(() => {
+    if (imageAttachment) {
+      return [];
+    }
+
+    const urls = new Set<string>();
+
+    for (const id of workspace.enabledPlatforms) {
+      const spec = PLATFORMS_BY_ID[id];
+      const render = platformRenders.get(id);
+      const url = spec?.linkPreview && render ? lastUrlInText(render.text) : undefined;
+
+      if (url) {
+        urls.add(url);
+      }
+    }
+
+    return [...urls];
+  }, [imageAttachment, platformRenders, workspace.enabledPlatforms]);
+
+  useEffect(() => {
+    if (imageAttachment) {
+      setDebouncedPlatformPreviewUrls([]);
+      return;
+    }
+
+    const handle = window.setTimeout(() => {
+      setDebouncedPlatformPreviewUrls(platformPreviewUrls);
+    }, AUTOFIT_IDLE_MS);
+
+    return () => window.clearTimeout(handle);
+  }, [imageAttachment, platformPreviewUrls]);
+
+  // Fetch link-unfurl previews for the last URL shown in each platform card that
+  // supports URL previews, after the same idle delay used by autofit.
+  useEffect(() => {
+    const pending = debouncedPlatformPreviewUrls.filter((url) => {
+      const preview = linkPreviews.get(url);
+      return shouldRefreshLinkPreview(preview, url) && !startedPreviewKeys.current.has(previewFetchKey(url, preview));
+    });
+
+    if (pending.length === 0) {
+      return;
+    }
+
+    for (const url of pending) {
+      const preview = linkPreviews.get(url);
+      startedPreviewKeys.current.add(previewFetchKey(url, preview));
+      setLinkPreviews((prev) => new Map(prev).set(url, { status: 'loading' }));
+
+      void fetchLinkPreview(url).then((nextPreview) => {
+        startedPreviewKeys.current.add(previewFetchKey(url, nextPreview));
+        setLinkPreviews((prev) => {
+          if (prev.get(url)?.status === 'manual') {
+            return prev;
+          }
+
+          return new Map(prev).set(url, nextPreview);
+        });
+      });
+    }
+  }, [debouncedPlatformPreviewUrls, linkPreviews]);
 
   const enabledSpecs = PLATFORMS.filter((spec) => workspace.enabledPlatforms.includes(spec.id));
   const forkedIds = useMemo(() => new Set(Object.keys(workspace.overrides) as PlatformId[]), [workspace.overrides]);
@@ -164,35 +252,33 @@ function App() {
   const dormant = dormantPlatforms(workspace);
   const isEditorCollapsed = editorCollapsed;
 
-  // Auto-fit: after a typing pause, rewrite enabled, over-limit, non-forked
-  // platforms to fit, and drop AI versions that no longer apply.
+  // Auto-adapt: after a typing pause, rewrite enabled, non-forked platforms for
+  // style guidance and/or over-limit auto-fit, then drop stale AI versions.
   useEffect(() => {
-    if (!aiReady || !llmConfig.autoFit) {
+    if (!aiReady || !shouldAutoAdapt(llmConfig)) {
       return;
     }
 
     const handle = window.setTimeout(() => {
-      void runAutofit();
+      void runAutoAdapt(llmConfig);
     }, AUTOFIT_IDLE_MS);
 
     return () => window.clearTimeout(handle);
-    // runAutofit reads the latest workspace via this effect's closure; it re-runs
-    // (resetting the timer) on every master/platform/override/config/link change.
+    // runAutoAdapt reads the latest workspace via this effect's closure; it re-runs
+    // (resetting the timer) on every master/platform/override/config change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace.master, workspace.enabledPlatforms, workspace.overrides, llmConfig, sharedLinkUrls]);
+  }, [workspace.master, workspace.enabledPlatforms, workspace.overrides, llmConfig]);
 
-  async function runAutofit() {
+  async function runAutoAdapt(config: LlmConfig) {
+    if (!isLlmReady(config) || !shouldAutoAdapt(config)) {
+      return;
+    }
+
     fitAbortRef.current?.abort();
     const controller = new AbortController();
     fitAbortRef.current = controller;
 
-    const selection = selectAutofit({
-      master: workspace.master,
-      enabledPlatforms: workspace.enabledPlatforms,
-      userForkedIds: new Set(Object.keys(workspace.overrides) as PlatformId[]),
-      aiVersionIds: new Set(aiVersionsRef.current.keys()),
-      linkUrls: sharedLinkUrls,
-    });
+    const selection = selectAutoAdapt(config, workspace.master, workspace.enabledPlatforms, workspace.overrides, aiVersionsRef.current);
 
     if (selection.toClear.length > 0) {
       setAiVersions((prev) => {
@@ -207,6 +293,7 @@ function App() {
     }
 
     const masterText = docToPlainText(workspace.master);
+    const masterMarkdown = docToMarkdown(workspace.master);
     setGenerating((prev) => new Set([...prev, ...selection.toFit]));
     setAiError(null);
 
@@ -217,7 +304,9 @@ function App() {
         try {
           // generateFit re-checks the length and regenerates automatically; we
           // always show its best result without surfacing an over-limit notice.
-          const result = await generateFit({ config: llmConfig, spec, masterText, style: llmConfig.stylePrompt, signal: controller.signal, linkUrls: sharedLinkUrls });
+          // Styling-capable platforms get the Markdown master so the author's
+          // bold/italic/lists survive; plain-text platforms can't show them.
+          const result = await generateFit({ config, spec, masterText: spec.allowUnicodeStyling ? masterMarkdown : masterText, style: config.stylePrompt, signal: controller.signal });
 
           if (!controller.signal.aborted) {
             setAiVersions((prev) => new Map(prev).set(id, result.doc));
@@ -248,7 +337,8 @@ function App() {
     setAiError(null);
 
     try {
-      const result = await generateFit({ config: llmConfig, spec, masterText: docToPlainText(workspace.master), style: llmConfig.stylePrompt, linkUrls: sharedLinkUrls });
+      const masterText = spec.allowUnicodeStyling ? docToMarkdown(workspace.master) : docToPlainText(workspace.master);
+      const result = await generateFit({ config: llmConfig, spec, masterText, style: llmConfig.stylePrompt });
       // The sparkle only appears on a forked (edited) card, so applying the AI
       // version means discarding the manual edit: drop the override so the AI
       // version (which would otherwise be hidden behind it) becomes visible.
@@ -274,7 +364,7 @@ function App() {
     setAuthorError(null);
 
     try {
-      const { system, prompt } = buildAuthorRequest(instruction, docToPlainText(workspace.master), llmConfig.stylePrompt, buildSourcesBlock(sources));
+      const { system, prompt } = buildAuthorRequest(instruction, docToMarkdown(workspace.master), llmConfig.stylePrompt, buildSourcesBlock(sources));
       const text = await generateText({ config: llmConfig, system, prompt });
       const doc = markdownToTipTap(text);
       setWorkspace((prev) => applyMasterEdit(prev, doc));
@@ -292,6 +382,8 @@ function App() {
     setLlmConfig(config);
     saveLlmConfig(config);
     setShowSettings(false);
+
+    void runAutoAdapt(config);
   }
 
   function handleAddSource(source: Source) {
@@ -306,20 +398,22 @@ function App() {
     setSources((prev) => prev.filter((source) => source.id !== id));
   }
 
-  function handleAddAttachment(attachment: Attachment) {
-    setAttachments((prev) => [...prev, attachment]);
-  }
-
-  function handleRemoveAttachment(id: string) {
-    setAttachments((prev) => {
-      const target = prev.find((attachment) => attachment.id === id);
-
-      if (target) {
-        revokeAttachment(target);
+  function handleSetImageAttachment(image: Attachment | null) {
+    setImageAttachment((prev) => {
+      if (prev) {
+        revokeAttachment(prev);
       }
 
-      return prev.filter((attachment) => attachment.id !== id);
+      return image;
     });
+
+    // Persist image/video binaries to IndexedDB so they survive reload/restart;
+    // removals (and non-file attachments) clear the stored blob. Fire-and-forget.
+    if (image?.file) {
+      void putActiveAttachment(image);
+    } else {
+      void clearActiveAttachment();
+    }
   }
 
   function handleMasterChange(nextMaster: EditorNode) {
@@ -388,8 +482,7 @@ function App() {
     const spec = PLATFORMS_BY_ID[id];
 
     if (spec && aiReady && llmConfig.autoFit) {
-      const overLimit =
-        renderForPlatform(workspace.master, spec, { linkUrls: sharedLinkUrls }).summary.count > spec.charLimit;
+      const overLimit = renderForPlatform(workspace.master, spec).summary.count > spec.charLimit;
 
       if (overLimit) {
         void handleFit(id);
@@ -408,15 +501,22 @@ function App() {
     setWorkspace((prev) => ({ ...prev, master: EMPTY_DOCUMENT, overrides: {} }));
     setAiVersions(new Map());
     setActivePaneEditor(null);
+    setSources([]);
+    handleSetImageAttachment(null);
+    startedPreviewKeys.current.clear();
+    setLinkPreviews(new Map());
+    setDebouncedPlatformPreviewUrls([]);
     setEditorVersion((version) => version + 1);
     setStorageNotice(null);
   }
 
-  function handleSaveDraftSnapshot(title: string) {
+  async function handleSaveDraftSnapshot(title: string) {
     const characterCount = renderForPlatform(workspace.master, PLATFORMS_BY_ID.linkedin).summary.count;
     const result = saveDraftSnapshot(workspace.master, title, characterCount, {
       overrides: workspace.overrides,
+      aiVersions: Object.fromEntries(aiVersions) as Partial<Record<PlatformId, EditorNode>>,
       enabledPlatforms: workspace.enabledPlatforms,
+      sources,
     });
 
     if (result.ok) {
@@ -428,12 +528,17 @@ function App() {
   }
 
   function handleRestoreDraftSnapshot(draft: DraftSnapshot) {
+    startedPreviewKeys.current.clear();
+    setLinkPreviews(new Map());
+    setDebouncedPlatformPreviewUrls([]);
+    handleSetImageAttachment(null);
+    setSources(draft.sources ?? []);
     setWorkspace((prev) => ({
       master: draft.document,
       overrides: draft.overrides ?? {},
       enabledPlatforms: draft.enabledPlatforms ?? prev.enabledPlatforms,
     }));
-    setAiVersions(new Map());
+    setAiVersions(new Map(Object.entries(draft.aiVersions ?? {}) as [PlatformId, EditorNode][]));
     setActivePaneEditor(null);
     setEditorVersion((version) => version + 1);
     setStorageNotice(null);
@@ -462,6 +567,7 @@ function App() {
             <p className="subtitle">Draft once, format for every platform. Connect an AI assistant to help write your post and tailor it to each platform's length and style.</p>
           </div>
           <div className="header-actions">
+            <InstallButton />
             <button type="button" className="header-icon-button" aria-label="How Polypost works" title="Help" onClick={() => setShowHelp(true)}>
               <HelpCircle aria-hidden="true" size={18} />
             </button>
@@ -535,11 +641,7 @@ function App() {
               onReplaceDocument={handleReplaceDocument}
               onReset={handleReset}
             />
-            <MediaTray
-              attachments={attachments}
-              onAddAttachment={handleAddAttachment}
-              onRemoveAttachment={handleRemoveAttachment}
-            />
+            <ImageAttachmentControl image={imageAttachment} onSetImage={handleSetImageAttachment} />
             <DraftHistoryPanel
               drafts={draftHistory}
               onDelete={handleDeleteDraftSnapshot}
@@ -555,7 +657,8 @@ function App() {
             documents={platformDocuments}
             forkedIds={forkedIds}
             aiAdaptedIds={aiAdaptedIds}
-            attachments={attachments}
+            imageAttachment={imageAttachment}
+            linkPreviews={linkPreviews}
             generatingIds={generating}
             aiReady={aiReady}
             aiError={aiError}
@@ -580,8 +683,47 @@ function App() {
           onCancel={() => setResyncTarget(null)}
         />
       ) : null}
+      <UpdatePrompt />
     </ErrorBoundary>
   );
+}
+
+function shouldAutoAdapt(config: LlmConfig): boolean {
+  return Boolean(config.stylePrompt.trim()) || config.autoFit;
+}
+
+function selectAutoAdapt(
+  config: LlmConfig,
+  master: EditorNode,
+  enabledPlatforms: PlatformId[],
+  overrides: Partial<Record<PlatformId, EditorNode>>,
+  aiVersions: ReadonlyMap<PlatformId, EditorNode>,
+): { toFit: PlatformId[]; toClear: PlatformId[] } {
+  const userForkedIds = new Set(Object.keys(overrides) as PlatformId[]);
+  const aiVersionIds = new Set(aiVersions.keys());
+  // Style guidance only targets cards when the editor itself has content —
+  // context/source documents alone must not trigger styling of an empty post.
+  const hasMasterContent = Boolean(docToPlainText(master).trim());
+  const styleActive = Boolean(config.stylePrompt.trim()) && hasMasterContent;
+  const styleTargets = styleActive ? enabledPlatforms.filter((id) => !userForkedIds.has(id)) : [];
+  const fitSelection = config.autoFit
+    ? selectAutofit({ master, enabledPlatforms, userForkedIds, aiVersionIds })
+    : { toFit: [], toClear: [] };
+  const enabled = new Set(enabledPlatforms);
+  const toFit = [...new Set([...fitSelection.toFit, ...styleTargets])];
+  // With style guidance on but no editor content, drop every existing AI version
+  // so the cards fall back to the (empty) master instead of stale styled text.
+  const toClear = config.stylePrompt.trim()
+    ? hasMasterContent
+      ? [...aiVersionIds].filter((id) => !enabled.has(id) || userForkedIds.has(id))
+      : [...aiVersionIds]
+    : fitSelection.toClear;
+
+  return { toFit, toClear };
+}
+
+function previewFetchKey(id: string, preview: LinkPreview | undefined): string {
+  return [id, preview?.status ?? 'missing', preview?.title ?? '', preview?.imageUrl ?? ''].join('\u0000');
 }
 
 export default App;

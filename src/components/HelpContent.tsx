@@ -1,7 +1,8 @@
 // Shared help copy, grouped into sections. Rendered inside a <details> by
 // HelpPanel (used by the browser extension) and inside a modal by HelpModal
-// (used by the web app).
-export function HelpContent() {
+// (used by the web app). `webApp` enables web-only sections (e.g. installing as a
+// PWA) that don't apply to the LinkedIn extension.
+export function HelpContent({ webApp = false }: { webApp?: boolean }) {
   return (
     <div className="help-sections">
       <section className="help-section">
@@ -34,9 +35,8 @@ export function HelpContent() {
           </li>
           <li>Ask the AI to write or improve the main draft from the bar above the editor.</li>
           <li>
-            Give the AI material to use as its context with "Reference sources for AI": add a .txt/.md/.docx file, a
-            URL, or pasted text. Sources are context only — they're never posted. If a URL can't be fetched (many sites
-            block it), paste the page text into the prompt the card shows.
+            Give the AI material to use as its context with \"Reference sources for AI\": add a .txt/.md/.docx file or
+            pasted text. Sources are context only — they're never posted.
           </li>
           <li>Use "Adapt with AI" on a card to rewrite the post for that platform on demand.</li>
           <li>
@@ -70,21 +70,20 @@ export function HelpContent() {
       </section>
 
       <section className="help-section">
-        <h3>Images &amp; links</h3>
+        <h3>Image &amp; URL previews</h3>
         <ul className="help-list">
           <li>
-            Add an image or a link once in "Images &amp; links" below the editor and reuse it everywhere — no need to
-            re-add it per platform.
+            Add one image below the editor when the post should include media. The image is session-only, replaces any
+            previous image, and can be copied to your clipboard for pasting into a composer.
           </li>
           <li>
-            Link URLs fold into each card's text and count against that platform's limit (on X each counts as 23), so
-            Copy and Copy &amp; open include them automatically. Links are saved to this browser.
+            Add URLs directly in the editor or in a platform-specific edit. The URL stays in that platform's text and
+            counts against its limit (on X each URL counts as 23).
           </li>
           <li>
-            For an image, use <strong>Copy image</strong> to put the picture on your clipboard and paste it straight into
-            the LinkedIn composer, or download / drag the file into any other composer. Images are kept for this session
-            only. (Videos can't be copied by a web page, so they're not included — post video through the LinkedIn
-            extension, which attaches it for you.)
+            When an image is selected, preview cards show that image instead of URL unfurls. Otherwise, platforms that
+            support URL previews show the unfurl preview for the last URL in that platform's rendered text after a short
+            typing pause.
           </li>
         </ul>
       </section>
@@ -119,7 +118,7 @@ export function HelpContent() {
             copy-only or open to the site, since they don't accept pre-filled caption text.
           </li>
           <li>
-            When posting through the extension, LinkedIn expands the first URL into its usual link preview card. Attached
+            When posting through the extension, LinkedIn expands the last URL into its usual link preview card. Attached
             images or video suppress the preview, as on LinkedIn itself.
           </li>
         </ul>
@@ -132,6 +131,27 @@ export function HelpContent() {
           <li>Keyboard shortcuts include Ctrl+B, Ctrl+I, Ctrl+Z, and Ctrl+Y, and work in both the main editor and the platform previews.</li>
         </ul>
       </section>
+
+      {webApp ? (
+        <section className="help-section">
+          <h3>Install as an app (PWA)</h3>
+          <ul className="help-list">
+            <li>
+              Polypost is a Progressive Web App. Use the Install app button in the header — or your browser's install
+              option — to add it to your home screen or desktop and run it in its own window.
+            </li>
+            <li>
+              Works offline: once it has loaded, you can open Polypost and write, edit, and manage drafts with no
+              connection. AI assistance and link previews need the network, so they're unavailable offline.
+            </li>
+            <li>
+              Stays up to date: when a new version is published, a "new version available" prompt appears — reload to
+              update.
+            </li>
+            <li>An attached image or video is saved on this device, so it's restored when you reopen the app.</li>
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }

@@ -21,6 +21,7 @@ This is not an official app of any platform. Drafts stay in your browser; the ex
 - **Mention people.** Write `@[Name]` — it shows as `@Scott Hanselman` on LinkedIn (where the extension resolves it into a real, clickable mention) and collapses to a single handle-style token like `@ScottHanselman` on X, Bluesky, Threads, and Mastodon, so their autocomplete fires on the whole name (and can match a handle) instead of splitting it at the space.
 - **Add media & links once.** Use the **Images & links** tray to reuse an image or link across platforms: links fold into each platform's text and count, and an image can be copied to the clipboard to paste into LinkedIn (or downloaded / dragged into any composer).
 - **Optional AI.** Connect your own LLM key (Anthropic Claude, Google Gemini, or any OpenAI-compatible endpoint) to write, adapt, and auto-fit posts — with documents or URLs as reference context. Your key stays in your browser.
+- **Install it as an app.** The web app is a PWA: install it from the **Install app** button in the header (or your browser's install option) to run it in its own window and add it to your home screen or desktop. Once loaded it works **offline** for writing, editing, and managing drafts (AI and link previews still need the network), and prompts you to reload when a new version is published.
 
 ## Features
 
@@ -31,6 +32,7 @@ This is not an official app of any platform. Drafts stay in your browser; the ex
 - **Optional, bring-your-own-key AI** — write, adapt a single platform, auto-fit over-limit posts, and feed in reference sources (files, URLs, or pasted text), with a multiline prompt box and remembered prompt history.
 - **Rich-text editing** — Markdown and Word paste, file import, a searchable emoji picker, lists, and links, with LinkedIn-style Unicode styling where it helps.
 - **Private by default** — drafts, settings, and API keys stay in your browser; nothing leaves it except the AI endpoint you choose to configure.
+- **Installable PWA** — add it to your home screen or desktop and launch it in its own window; the app shell is cached so editing and drafts work offline, attachments are kept on-device, and a reload prompt appears when a new version ships.
 
 ## Local Development
 
@@ -55,6 +57,16 @@ Preview the production build locally:
 
 ```bash
 npm run preview
+```
+
+### Progressive Web App (PWA)
+
+`npm run build` also emits the service worker and web app manifest via [`vite-plugin-pwa`](https://vite-pwa-org.netlify.app/), making the app installable and offline-capable. PWA features (install prompt, offline caching, the update toast) are only active in the **built** app — `npm run dev` does not register a service worker — so use `npm run preview` (or the deployed site) to exercise them.
+
+The PWA icons in `public/` (`pwa-*.png`, `maskable-icon-512x512.png`, `apple-touch-icon-180x180.png`) are rendered from `public/favicon.svg`. Regenerate them after changing the source art with:
+
+```bash
+npm run generate:icons
 ```
 
 ## LinkedIn browser extension

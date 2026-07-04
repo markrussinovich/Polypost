@@ -5,10 +5,10 @@ import { getAcceptedDocumentTypes } from '../lib/importDocument';
 import {
   makeDocumentSource,
   makeTextSource,
-  makeUrlSource,
   withPastedText,
   type Source,
 } from '../lib/ai/sources';
+import { SourcePreview } from './SourcePreview';
 
 interface SourcesPanelProps {
   sources: Source[];
@@ -17,38 +17,17 @@ interface SourcesPanelProps {
   onRemoveSource: (id: string) => void;
 }
 
-type AddMode = 'url' | 'text' | null;
+type AddMode = 'text' | null;
 
 const KIND_ICON = { doc: FileText, url: Globe, text: Type } as const;
 
 export function SourcesPanel({ sources, onAddSource, onUpdateSource, onRemoveSource }: SourcesPanelProps) {
   const [addMode, setAddMode] = useState<AddMode>(null);
-  const [urlValue, setUrlValue] = useState('');
   const [textValue, setTextValue] = useState('');
   const [textTitle, setTextTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  async function handleAddUrl() {
-    const trimmed = urlValue.trim();
-
-    if (!trimmed || busy) {
-      return;
-    }
-
-    setBusy(true);
-    setError(null);
-
-    try {
-      onAddSource(await makeUrlSource(trimmed));
-      setUrlValue('');
-      setAddMode(null);
-    } catch {
-      setError('Could not add that URL.');
-    } finally {
-      setBusy(false);
-    }
-  }
+  const [previewSource, setPreviewSource] = useState<Source | null>(null);
 
   function handleAddText() {
     const trimmed = textValue.trim();
@@ -95,36 +74,11 @@ export function SourcesPanel({ sources, onAddSource, onUpdateSource, onRemoveSou
           <FileText aria-hidden="true" size={14} /> Add file
           <input type="file" accept={getAcceptedDocumentTypes()} disabled={busy} onChange={handleFile} />
         </label>
-        <button type="button" className="secondary-action" disabled={busy} onClick={() => setAddMode((mode) => (mode === 'url' ? null : 'url'))}>
-          <Globe aria-hidden="true" size={14} /> Add URL
-        </button>
         <button type="button" className="secondary-action" disabled={busy} onClick={() => setAddMode((mode) => (mode === 'text' ? null : 'text'))}>
           <Type aria-hidden="true" size={14} /> Paste text
         </button>
         {busy ? <Loader aria-hidden="true" size={14} className="spin sources-busy" /> : null}
       </div>
-
-      {addMode === 'url' ? (
-        <div className="sources-input-row">
-          <input
-            type="url"
-            value={urlValue}
-            placeholder="https://example.com/article"
-            aria-label="Source URL"
-            disabled={busy}
-            onChange={(event) => setUrlValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                void handleAddUrl();
-              }
-            }}
-          />
-          <button type="button" className="primary-action" disabled={busy || !urlValue.trim()} onClick={() => void handleAddUrl()}>
-            <Plus aria-hidden="true" size={14} /> Add
-          </button>
-        </div>
-      ) : null}
 
       {addMode === 'text' ? (
         <div className="sources-text-row">
@@ -157,10 +111,18 @@ export function SourcesPanel({ sources, onAddSource, onUpdateSource, onRemoveSou
       {sources.length ? (
         <ul className="sources-list">
           {sources.map((source) => (
-            <SourceItem key={source.id} source={source} onUpdate={onUpdateSource} onRemove={onRemoveSource} />
+            <SourceItem
+              key={source.id}
+              source={source}
+              onUpdate={onUpdateSource}
+              onRemove={onRemoveSource}
+              onOpen={setPreviewSource}
+            />
           ))}
         </ul>
       ) : null}
+
+      {previewSource ? <SourcePreview source={previewSource} onClose={() => setPreviewSource(null)} /> : null}
     </details>
   );
 }
@@ -169,26 +131,44 @@ interface SourceItemProps {
   source: Source;
   onUpdate: (id: string, source: Source) => void;
   onRemove: (id: string) => void;
+  onOpen: (source: Source) => void;
 }
 
-function SourceItem({ source, onUpdate, onRemove }: SourceItemProps) {
+function SourceItem({ source, onUpdate, onRemove, onOpen }: SourceItemProps) {
   const [paste, setPaste] = useState('');
   const needsText = source.status === 'needs-text';
 
   return (
     <li className={`source-item${needsText ? ' is-pending' : ''}`}>
-      <div className="source-item-head">
+      <div
+        className="source-item-head is-openable"
+        role="button"
+        tabIndex={0}
+        title="Double-click to open"
+        onDoubleClick={() => onOpen(source)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            onOpen(source);
+          }
+        }}
+      >
         <SourceIcon source={source} />
         <span className="source-title" title={source.url ?? source.title}>{source.title}</span>
         <span className="source-meta">{source.status === 'ready' ? `${source.charCount.toLocaleString()} chars` : 'needs text'}</span>
-        <button type="button" className="source-remove" aria-label={`Remove ${source.title}`} onClick={() => onRemove(source.id)}>
+        <button
+          type="button"
+          className="source-remove"
+          aria-label={`Remove ${source.title}`}
+          onClick={() => onRemove(source.id)}
+          onDoubleClick={(event) => event.stopPropagation()}
+        >
           <X aria-hidden="true" size={14} />
         </button>
       </div>
       {needsText ? (
         <div className="source-fallback">
           <p className="source-fallback-note">
-            <AlertTriangle aria-hidden="true" size={13} /> Couldn't fetch this page (the site blocks it). Paste its text here.
+            <AlertTriangle aria-hidden="true" size={13} /> Preview is available, but this site blocks browser text import. Paste the article text here.
           </p>
           <textarea
             value={paste}

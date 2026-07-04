@@ -54,54 +54,11 @@ export async function makeDocumentSource(file: File): Promise<Source> {
   return { id: newId(), kind: 'doc', title: file.name, text, charCount: text.length, status: 'ready' };
 }
 
-// Try to fetch a URL directly from the browser. Many sites block cross-origin
-// reads (CORS), so on any failure we return a 'needs-text' source the UI prompts
-// the user to fill in by pasting the page text.
-export async function makeUrlSource(rawUrl: string): Promise<Source> {
-  const url = normalizeUrl(rawUrl);
-  const base: Source = { id: newId(), kind: 'url', title: titleFromUrl(url), text: '', charCount: 0, status: 'needs-text', url };
-
-  try {
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      return base;
-    }
-
-    const html = await response.text();
-    const text = htmlToPlainText(html).trim();
-
-    if (!text) {
-      return base;
-    }
-
-    return { ...base, text, charCount: text.length, status: 'ready' };
-  } catch {
-    // CORS, offline, bad URL — fall back to manual paste.
-    return base;
-  }
-}
-
-// Fill in (or replace) a source's text from text the user pasted. Used for the
-// CORS fallback and for editing a text source.
+// Fill in (or replace) a source's text from text the user pasted. Used to edit a
+// text source or supply text for any source still waiting on it.
 export function withPastedText(source: Source, text: string): Source {
   const trimmed = text.trim();
   return { ...source, text: trimmed, charCount: trimmed.length, status: trimmed ? 'ready' : 'needs-text' };
-}
-
-function normalizeUrl(raw: string): string {
-  const trimmed = raw.trim();
-  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-}
-
-function titleFromUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    const path = parsed.pathname.replace(/\/+$/, '');
-    return path && path !== '/' ? `${parsed.hostname}${path}` : parsed.hostname;
-  } catch {
-    return url;
-  }
 }
 
 // Strip an HTML document to readable text: drop non-content elements, prefer the

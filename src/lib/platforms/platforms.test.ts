@@ -52,33 +52,6 @@ describe('renderForPlatform mentions', () => {
   });
 });
 
-describe('renderForPlatform link folding', () => {
-  const document = doc([paragraph([text('Read this')])]);
-
-  it('appends shared link URLs to the text and the count', () => {
-    const base = renderForPlatform(document, linkedinSpec);
-    const withLink = renderForPlatform(document, linkedinSpec, { linkUrls: ['https://example.com'] });
-
-    expect(withLink.text).toBe(`${base.text}\n\nhttps://example.com`);
-    expect(withLink.summary.count).toBeGreaterThan(base.summary.count);
-  });
-
-  it('does not append links to an empty draft', () => {
-    const empty = doc([paragraph([])]);
-    const render = renderForPlatform(empty, linkedinSpec, { linkUrls: ['https://example.com'] });
-
-    expect(render.text).not.toContain('https://example.com');
-  });
-
-  it('counts each X link as the weighted 23', () => {
-    const base = renderForPlatform(document, PLATFORMS_BY_ID.x);
-    const withLink = renderForPlatform(document, PLATFORMS_BY_ID.x, { linkUrls: ['https://example.com/a/very/long/path'] });
-
-    // 23 for the URL + 2 for the "\n\n" joiner.
-    expect(withLink.summary.count).toBe(base.summary.count + 23 + 2);
-  });
-});
-
 describe('platform registry', () => {
   it('indexes every platform by id', () => {
     for (const spec of PLATFORMS) {
@@ -91,6 +64,7 @@ describe('platform registry', () => {
       expect(spec.charLimit).toBeGreaterThan(0);
       expect(spec.warningThreshold).toBeLessThanOrEqual(spec.charLimit);
       expect(spec.capabilities.copy).toBe(true);
+      expect(spec.capabilities.imageAttachments).toBe(true);
     }
   });
 

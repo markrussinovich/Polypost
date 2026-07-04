@@ -4,8 +4,9 @@ import type { EditorNode } from '../exportText';
 import { xSpec } from '../platforms/x';
 import { selectAutofit } from './autofit';
 import { defaultLlmConfig, isLlmReady, loadLlmConfig, saveLlmConfig } from './config';
-import { docToPlainText, plainTextToDoc } from './docText';
+import { docToMarkdown, docToPlainText, plainTextToDoc } from './docText';
 import { buildAuthorRequest, buildFitRequest } from './prompts';
+import { markdownToTipTap } from '../markdownToTipTap';
 
 function longDoc(chars: number): EditorNode {
   return { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'a'.repeat(chars) }] }] };
@@ -32,6 +33,74 @@ describe('plainTextToDoc / docToPlainText', () => {
     expect(doc.content?.[0].content?.map((n) => n.type)).toEqual(['text', 'hardBreak', 'text']);
     expect(doc.content?.[1]).toEqual({ type: 'paragraph' });
     expect(doc.content?.[2].content?.map((n) => n.type)).toEqual(['text']);
+  });
+});
+
+describe('docToMarkdown', () => {
+  it('serializes inline marks so the model can see the formatting', () => {
+    const doc: EditorNode = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'Big ', marks: [{ type: 'bold' }] },
+            { type: 'text', text: 'news' },
+            { type: 'text', text: ' and ' },
+            { type: 'text', text: 'soft', marks: [{ type: 'italic' }] },
+          ],
+        },
+      ],
+    };
+    expect(docToMarkdown(doc)).toBe('**Big **news and *soft*');
+  });
+
+  it('round-trips bold/italic through markdownToTipTap', () => {
+    const doc: EditorNode = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'bold', marks: [{ type: 'bold' }] },
+            { type: 'text', text: ' and ' },
+            { type: 'text', text: 'italic', marks: [{ type: 'italic' }] },
+          ],
+        },
+      ],
+    };
+    const back = markdownToTipTap(docToMarkdown(doc));
+    const marksOf = (text: string) =>
+      back.content?.[0].content?.find((n) => n.text === text)?.marks?.map((m) => m.type);
+    expect(marksOf('bold')).toEqual(['bold']);
+    expect(marksOf('italic')).toEqual(['italic']);
+  });
+
+  it('keeps links, mentions, and bullet lists', () => {
+    const doc: EditorNode = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'See ' },
+            { type: 'text', text: 'the docs', marks: [{ type: 'link', attrs: { href: 'https://a.test' } }] },
+            { type: 'text', text: ' @[Ada Lovelace]' },
+          ],
+        },
+        {
+          type: 'bulletList',
+          content: [
+            { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'one' }] }] },
+            { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'two' }] }] },
+          ],
+        },
+      ],
+    };
+    const markdown = docToMarkdown(doc);
+    expect(markdown).toContain('[the docs](https://a.test)');
+    expect(markdown).toContain('@[Ada Lovelace]');
+    expect(markdown).toContain('- one\n- two');
   });
 });
 

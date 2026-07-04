@@ -63,6 +63,25 @@ describe('sanitizePastedHTML', () => {
     expect(sanitized).toContain('<p>Third.</p>');
   });
 
+  it('preserves Outlook paragraph breaks when the plain text contains blank lines', () => {
+    const html = [
+      '<p class="MsoNormal">Intro paragraph.<o:p></o:p></p>',
+      '<p class="MsoNormal"><o:p>&nbsp;</o:p></p>',
+      '<p class="MsoNormal">📦 First detail paragraph.<o:p></o:p></p>',
+      '<p class="MsoNormal"><o:p>&nbsp;</o:p></p>',
+      '<p class="MsoNormal">🔗 Second detail paragraph.<o:p></o:p></p>',
+    ].join('');
+    const plainText = ['Intro paragraph.', ' ', '📦 First detail paragraph.', ' ', '🔗 Second detail paragraph.'].join('\n');
+
+    const sanitized = sanitizePastedHTML(html, plainText);
+
+    expect(sanitized.match(/<p>/g)).toHaveLength(5);
+    expect(sanitized).toContain('<p></p>');
+    expect(sanitized).not.toContain('<p><br></p>');
+    expect(sanitized).toContain('<p>Intro paragraph.</p><p></p><p>📦 First detail paragraph.</p>');
+    expect(sanitized).toContain('<p>📦 First detail paragraph.</p><p></p><p>🔗 Second detail paragraph.</p>');
+  });
+
   it('trims whitespace from the Word <html>/<body> wrapper', () => {
     const html = '<html>\r\n<body>\r\n<!--StartFragment--><p class="MsoNormal">Only line.<o:p></o:p></p><!--EndFragment-->\r\n</body>\r\n</html>';
 
