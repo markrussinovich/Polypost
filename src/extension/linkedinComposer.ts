@@ -95,14 +95,51 @@ function isControlDisabled(control: HTMLElement): boolean {
 }
 
 export function isStartPostControl(element: HTMLElement): boolean {
-  const label = `${element.textContent ?? ''} ${element.getAttribute('aria-label') ?? ''}`.toLowerCase();
-  return label.includes('start a post');
+  const ariaLabel = (element.getAttribute('aria-label') ?? '').trim().toLowerCase();
+
+  if (ariaLabel.includes('start a post')) {
+    return true;
+  }
+
+  // Fall back to the element's own text, but only when it is the compact
+  // trigger itself. A large container (e.g. the feed's primary-content section)
+  // also has "start a post" somewhere in its textContent; matching that would
+  // fire the formatter on unrelated clicks.
+  const text = (element.textContent ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+  return text === 'start a post';
+}
+
+// LinkedIn's "Start a post" trigger has drifted across feed redesigns: a
+// <button>, then a role="button" div, and — in the redesigned feed — a plain
+// <div aria-label="Start a post"> wrapped in an <a tabindex="0"> with no button
+// semantics at all. Walk up from the click target and match on the label rather
+// than the tag so every variant is caught.
+export function findStartPostControlFrom(target: Element | null): HTMLElement | null {
+  for (let element: Element | null = target; element instanceof HTMLElement; element = element.parentElement) {
+    if (element.closest(EXTENSION_ROOT_SELECTOR)) {
+      return null;
+    }
+
+    if (isStartPostControl(element)) {
+      return element;
+    }
+  }
+
+  return null;
 }
 
 export function openNativeLinkedInComposer(): boolean {
-  const control = getButtonLikeControls(document).find(isStartPostControl);
-  control?.click();
-  return Boolean(control);
+  const control = queryAllDeep<HTMLElement>('button, [role="button"], a[tabindex], [aria-label]').find(isStartPostControl);
+
+  if (!control) {
+    return false;
+  }
+
+  // The label may sit on an inert wrapper; click the nearest actionable
+  // ancestor (button/link) so LinkedIn's own handler fires.
+  const actionable = control.closest<HTMLElement>('button, [role="button"], a[href], a[tabindex]') ?? control;
+  clickControl(actionable);
+  return true;
 }
 
 export function clickLinkedInControl(control: HTMLElement) {
