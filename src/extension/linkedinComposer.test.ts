@@ -13,7 +13,9 @@ import {
   findLinkedInPostButton,
   findMentionTypeaheadOption,
   findNativeComposerDialog,
+  findStartPostControlFrom,
   getLinkedInComposerAnchor,
+  isStartPostControl,
   setLinkedInComposerSegments,
   setLinkedInComposerText,
 } from './linkedinComposer';
@@ -50,6 +52,72 @@ function stubDataTransfer() {
 
   vi.stubGlobal('DataTransfer', FakeDataTransfer);
 }
+
+describe('start-post trigger detection', () => {
+  it('matches the old button semantic (text, possibly with an icon)', () => {
+    document.body.innerHTML = `
+      <button class="artdeco-button">
+        <svg class="icon"></svg>
+        <span>Start a post</span>
+      </button>
+    `;
+    const button = document.querySelector('button')!;
+    expect(isStartPostControl(button)).toBe(true);
+  });
+
+  it('matches the old role="button" semantic', () => {
+    document.body.innerHTML = `<div role="button">Start a post</div>`;
+    expect(isStartPostControl(document.querySelector('[role="button"]')!)).toBe(true);
+  });
+
+  it('matches the new aria-label semantic with no button role', () => {
+    document.body.innerHTML = `
+      <a tabindex="0">
+        <div aria-label="Start a post"><p>Start a post</p></div>
+      </a>
+    `;
+    const labelled = document.querySelector('[aria-label="Start a post"]')!;
+    expect(isStartPostControl(labelled as HTMLElement)).toBe(true);
+  });
+
+  it('does not match a large container that merely contains the trigger text', () => {
+    document.body.innerHTML = `
+      <section aria-label="Primary content">
+        <a tabindex="0"><div aria-label="Start a post"><p>Start a post</p></div></a>
+        <div>Lots of other feed content here.</div>
+      </section>
+    `;
+    const section = document.querySelector('section')!;
+    expect(isStartPostControl(section)).toBe(false);
+  });
+
+  it('finds the trigger when the click lands inside the new (labelled) semantic', () => {
+    document.body.innerHTML = `
+      <a tabindex="0">
+        <div aria-label="Start a post"><p id="inner">Start a post</p></div>
+      </a>
+    `;
+    const found = findStartPostControlFrom(document.getElementById('inner'));
+    // The exact node returned does not matter — the handler only uses it as a
+    // truthy gate — but it must sit within the trigger.
+    expect(found).not.toBeNull();
+    expect(found!.closest('a[tabindex]')).not.toBeNull();
+  });
+
+  it('finds the trigger when the click lands inside the old (button) semantic', () => {
+    document.body.innerHTML = `
+      <button><span id="inner">Start a post</span></button>
+    `;
+    const found = findStartPostControlFrom(document.getElementById('inner'));
+    expect(found).not.toBeNull();
+    expect(found!.closest('button')).not.toBeNull();
+  });
+
+  it('returns null when the click is unrelated to the trigger', () => {
+    document.body.innerHTML = `<button id="like">Like</button>`;
+    expect(findStartPostControlFrom(document.getElementById('like'))).toBeNull();
+  });
+});
 
 describe('linkedinComposer helpers', () => {
   afterEach(() => {

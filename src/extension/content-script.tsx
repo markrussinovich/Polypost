@@ -17,7 +17,7 @@ import {
   findNativeComposerDialog,
   findNativeComposerDialogs,
   hideDialogSurface,
-  isStartPostControl,
+  findStartPostControlFrom,
   NATIVE_HIDDEN_CLASS_NAME,
   openNativeLinkedInComposer,
   queryAllDeep,
@@ -312,9 +312,9 @@ function handleDocumentStartPostEvent(event: MouseEvent | PointerEvent) {
     return;
   }
 
-  const control = target.closest<HTMLElement>('button, [role="button"]');
+  const control = findStartPostControlFrom(target);
 
-  if (!control || !isStartPostControl(control)) {
+  if (!control) {
     return;
   }
 

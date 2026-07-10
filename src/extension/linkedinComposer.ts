@@ -94,15 +94,68 @@ function isControlDisabled(control: HTMLElement): boolean {
   return control.getAttribute('aria-disabled') === 'true' || control.classList.contains('artdeco-button--disabled');
 }
 
+// LinkedIn ships more than one "Start a post" trigger — the variant appears to
+// differ by region/experiment — so this matches every known semantic rather
+// than assuming one:
+//   - New (redesigned feed): a labelled element, e.g. <div aria-label="Start a
+//     post"> wrapped in an <a tabindex="0">, with no button semantics.
+//   - Old: a <button> / [role="button"] whose text reads "Start a post"
+//     (possibly alongside an icon or extra whitespace).
 export function isStartPostControl(element: HTMLElement): boolean {
-  const label = `${element.textContent ?? ''} ${element.getAttribute('aria-label') ?? ''}`.toLowerCase();
-  return label.includes('start a post');
+  const ariaLabel = (element.getAttribute('aria-label') ?? '').trim().toLowerCase();
+
+  // New semantic: the trigger carries the label directly.
+  if (ariaLabel.includes('start a post')) {
+    return true;
+  }
+
+  const text = (element.textContent ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+  // Old semantic: a button-like control labelled "Start a post". Buttons are
+  // specific enough that a substring match is safe even with an icon or extra
+  // markup inside them.
+  if (element.matches('button, [role="button"]') && text.includes('start a post')) {
+    return true;
+  }
+
+  // Fallback for a bare labelled element (no aria-label, no button semantics):
+  // only match when its own text is exactly the trigger, so a large container
+  // that merely contains "Start a post" somewhere inside does not false-match
+  // and fire the formatter on unrelated clicks.
+  return text === 'start a post';
+}
+
+// LinkedIn's "Start a post" trigger has drifted across feed redesigns: a
+// <button>, then a role="button" div, and — in the redesigned feed — a plain
+// <div aria-label="Start a post"> wrapped in an <a tabindex="0"> with no button
+// semantics at all. Walk up from the click target and match on the label rather
+// than the tag so every variant is caught.
+export function findStartPostControlFrom(target: Element | null): HTMLElement | null {
+  for (let element: Element | null = target; element instanceof HTMLElement; element = element.parentElement) {
+    if (element.closest(EXTENSION_ROOT_SELECTOR)) {
+      return null;
+    }
+
+    if (isStartPostControl(element)) {
+      return element;
+    }
+  }
+
+  return null;
 }
 
 export function openNativeLinkedInComposer(): boolean {
-  const control = getButtonLikeControls(document).find(isStartPostControl);
-  control?.click();
-  return Boolean(control);
+  const control = queryAllDeep<HTMLElement>('button, [role="button"], a[tabindex], [aria-label]').find(isStartPostControl);
+
+  if (!control) {
+    return false;
+  }
+
+  // The label may sit on an inert wrapper; click the nearest actionable
+  // ancestor (button/link) so LinkedIn's own handler fires.
+  const actionable = control.closest<HTMLElement>('button, [role="button"], a[href], a[tabindex]') ?? control;
+  clickControl(actionable);
+  return true;
 }
 
 export function clickLinkedInControl(control: HTMLElement) {
