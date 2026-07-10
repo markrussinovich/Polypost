@@ -22,6 +22,7 @@ export const xSpec: PlatformSpec = {
     },
   },
   warnings: [],
+  disclaimer: 'Counts are an estimate: links count as 23 characters and some complex emoji may count as more.',
   // X shows a summary_large_image card: big image, title, domain — no description.
   linkPreview: { layout: 'large', showDescription: false },
 };
