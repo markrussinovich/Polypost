@@ -17,7 +17,7 @@ describe('looksLikeMarkdown', () => {
 
 describe('markdownToTipTap', () => {
   it('converts inline marks and links', () => {
-    expect(markdownToTipTap('**Bold**, *italic*, __underline__, ~~strike~~, `code`, [site](example.com)')).toEqual({
+    expect(markdownToTipTap('**Bold**, *italic*, __also bold__, ~~strike~~, `code`, [site](example.com)')).toEqual({
       type: 'doc',
       content: [
         {
@@ -27,13 +27,109 @@ describe('markdownToTipTap', () => {
             { type: 'text', text: ', ' },
             { type: 'text', text: 'italic', marks: [{ type: 'italic' }] },
             { type: 'text', text: ', ' },
-            { type: 'text', text: 'underline', marks: [{ type: 'underline' }] },
+            // CommonMark: __text__ is strong emphasis (bold), not underline.
+            { type: 'text', text: 'also bold', marks: [{ type: 'bold' }] },
             { type: 'text', text: ', ' },
             { type: 'text', text: 'strike', marks: [{ type: 'strike' }] },
             { type: 'text', text: ', ' },
             { type: 'text', text: 'code', marks: [{ type: 'code' }] },
             { type: 'text', text: ', ' },
             { type: 'text', text: 'site', marks: [{ type: 'link', attrs: { href: 'https://example.com' } }] },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('converts triple-asterisk emphasis to bold italic without stray asterisks', () => {
+    expect(markdownToTipTap('go ***both*** now')).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'go ' },
+            { type: 'text', text: 'both', marks: [{ type: 'bold' }, { type: 'italic' }] },
+            { type: 'text', text: ' now' },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('nests indented bullets under their parent item', () => {
+    expect(markdownToTipTap('- Parent\n  - Child one\n  - Child two\n- Sibling')).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'bulletList',
+          content: [
+            {
+              type: 'listItem',
+              content: [
+                { type: 'paragraph', content: [{ type: 'text', text: 'Parent' }] },
+                {
+                  type: 'bulletList',
+                  content: [
+                    { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Child one' }] }] },
+                    { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Child two' }] }] },
+                  ],
+                },
+              ],
+            },
+            { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Sibling' }] }] },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('keeps an ordered list going across an indented bullet sublist', () => {
+    expect(markdownToTipTap('1. One\n   - Sub\n2. Two')).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'orderedList',
+          attrs: { start: 1 },
+          content: [
+            {
+              type: 'listItem',
+              content: [
+                { type: 'paragraph', content: [{ type: 'text', text: 'One' }] },
+                {
+                  type: 'bulletList',
+                  content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Sub' }] }] }],
+                },
+              ],
+            },
+            { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Two' }] }] },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('nests an ordered sublist under a bullet item', () => {
+    expect(markdownToTipTap('- Top\n  1. First\n  2. Second')).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'bulletList',
+          content: [
+            {
+              type: 'listItem',
+              content: [
+                { type: 'paragraph', content: [{ type: 'text', text: 'Top' }] },
+                {
+                  type: 'orderedList',
+                  attrs: { start: 1 },
+                  content: [
+                    { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'First' }] }] },
+                    { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Second' }] }] },
+                  ],
+                },
+              ],
+            },
           ],
         },
       ],
