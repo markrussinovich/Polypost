@@ -87,6 +87,42 @@ describe('PlatformCard copy actions', () => {
   });
 });
 
+describe('PlatformCard pane editor identity', () => {
+  function renderEditingCard(isForked: boolean) {
+    return (
+      <PlatformCard
+        spec={xSpec}
+        render={renderForPlatform(text, xSpec)}
+        document={text}
+        isForked={isForked}
+        isAiAdapted={false}
+        imageAttachment={null}
+        linkPreviews={new Map()}
+        isGenerating={false}
+        aiReady={false}
+        isEditing
+        masterVersion={3}
+        onStartEditing={() => {}}
+        onStopEditing={() => {}}
+        onPaneChange={() => {}}
+        onResync={() => {}}
+        onFit={() => {}}
+      />
+    );
+  }
+
+  it('does not remount the pane editor when the first edit forks the platform', () => {
+    const { container, rerender } = render(renderEditingCard(false));
+    const before = container.querySelector('.pane-editor-content');
+    expect(before).not.toBeNull();
+
+    // The first keystroke creates an override, flipping isForked mid-session.
+    rerender(renderEditingCard(true));
+
+    expect(container.querySelector('.pane-editor-content')).toBe(before);
+  });
+});
+
 describe('PlatformCard link preview', () => {
   const url = 'https://example.test/post';
   const linkedText: EditorNode = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: `Launch day ${url}` }] }] };
