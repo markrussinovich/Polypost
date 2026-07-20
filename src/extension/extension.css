@@ -309,6 +309,13 @@
   color: #b25e09;
 }
 
+/* While the post bridge runs, text is inserted into LinkedIn's composer via
+   the global selection; the frozen overlay keeps clicks from stealing focus
+   mid-insert and routing keystrokes into the wrong editable. */
+.lipf-panel.lipf-posting {
+  pointer-events: none;
+}
+
 .lipf-full-workspace {
   display: flex;
   min-height: 0;

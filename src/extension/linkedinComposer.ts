@@ -514,9 +514,12 @@ export async function setLinkedInComposerSegments(
     composer.textContent = '';
   }
 
-  result.inserted = true;
-
   for (const segment of segments) {
+    // The insert commands act on the global selection and the bridge spans
+    // seconds; re-focus the composer before every segment so a stray focus
+    // change cannot route the segment into another editable.
+    composer.focus();
+
     if (segment.kind === 'mention') {
       result.mentionsRequested += 1;
 
@@ -532,9 +535,49 @@ export async function setLinkedInComposerSegments(
     }
   }
 
+  // Only report success once every segment has actually been written; an
+  // earlier flag would let a caller click Post on a half-inserted draft.
+  result.inserted = true;
+
   composer.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, composed: true }));
   composer.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
   return result;
+}
+
+// Verifies the composer's rendered text covers every plain-text segment of the
+// draft, in order. Whitespace is stripped before comparing because LinkedIn
+// rewrites newlines into paragraphs (dropping them from textContent) and can
+// render non-breaking spaces. Mention segments are skipped: LinkedIn rewrites
+// them into display names whose exact text cannot be asserted.
+export function composerTextCoversSegments(composer: HTMLElement, segments: ComposerSegment[]): boolean {
+  const haystack = stripAllWhitespace(composer.textContent ?? '');
+  let searchFrom = 0;
+
+  for (const segment of segments) {
+    if (segment.kind !== 'text') {
+      continue;
+    }
+
+    const needle = stripAllWhitespace(segment.text);
+
+    if (!needle) {
+      continue;
+    }
+
+    const index = haystack.indexOf(needle, searchFrom);
+
+    if (index === -1) {
+      return false;
+    }
+
+    searchFrom = index + needle.length;
+  }
+
+  return true;
+}
+
+function stripAllWhitespace(value: string): string {
+  return value.replace(/\s+/g, '');
 }
 
 function typeCharacterIntoComposer(composer: HTMLElement, char: string): boolean {

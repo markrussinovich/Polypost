@@ -8,6 +8,7 @@ import {
   attachFilesToLinkedInComposer,
   clickLinkedInControl,
   closeNativeLinkedInComposer,
+  composerTextCoversSegments,
   dismissNativeComposerDiscardConfirmation,
   findLinkedInComposer,
   findLinkedInLinkPreview,
@@ -252,6 +253,17 @@ async function postThroughLinkedIn(text: string, files: File[]): Promise<PostOut
 
       if (!wrote) {
         log('FAILED: could not write text');
+        return 'failed';
+      }
+
+      // Never click Post on unverified text: a mid-bridge focus steal or a
+      // swallowed insert could otherwise publish a truncated post. (The media
+      // path re-verifies above after its re-render window.)
+      const written = findLinkedInComposer() ?? composer;
+
+      if (!composerTextCoversSegments(written, segments)) {
+        log('FAILED: composer text does not cover the draft, not clicking Post');
+        dumpDomState('post-text-mismatch');
         return 'failed';
       }
 

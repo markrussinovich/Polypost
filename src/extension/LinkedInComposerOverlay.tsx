@@ -250,9 +250,20 @@ export function LinkedInComposerOverlay({ open, onClose, onPost }: LinkedInCompo
     return null;
   }
 
+  const isPosting = status === 'posting';
+
   return (
     <div className="lipf-modal-backdrop" role="presentation">
-      <section className="lipf-panel" role="dialog" aria-modal="true" aria-label="LinkedIn Post Formatter">
+      {/* While posting, text is inserted into LinkedIn's composer through the
+          global selection; freeze the overlay so a stray click cannot steal
+          focus and route keystrokes into the wrong editable. */}
+      <section
+        className={`lipf-panel${isPosting ? ' lipf-posting' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-busy={isPosting}
+        aria-label="LinkedIn Post Formatter"
+      >
         <div className="lipf-header">
           <div className="lipf-brand">
             <div className="lipf-brand-mark" aria-hidden="true">

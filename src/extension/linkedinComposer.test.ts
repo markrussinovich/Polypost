@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   attachFilesToLinkedInComposer,
   closeNativeLinkedInComposer,
+  composerTextCoversSegments,
   dismissNativeComposerDiscardConfirmation,
   findComposerMentionEntity,
   findLinkedInComposer,
@@ -273,6 +274,58 @@ describe('linkedinComposer helpers', () => {
 
     expect(result).toEqual({ inserted: true, mentionsRequested: 1, mentionsApplied: 0 });
     expect(editor.textContent).toBe('Hello !');
+  });
+
+  it('re-focuses the composer before every segment insert', async () => {
+    // Inserts go through the global selection over multiple seconds, so each
+    // segment must re-focus the composer in case something stole focus.
+    document.body.innerHTML = '<div contenteditable="true"></div>';
+    const editor = document.querySelector<HTMLElement>('[contenteditable="true"]')!;
+    const focusSpy = vi.spyOn(editor, 'focus');
+
+    await setLinkedInComposerSegments(editor, [
+      { kind: 'text', text: 'First ' },
+      { kind: 'text', text: 'second' },
+    ]);
+
+    // One initial focus plus one per segment.
+    expect(focusSpy.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('verifies composer text covers the draft despite whitespace rewrites', () => {
+    // LinkedIn turns newlines into paragraphs (dropping them from textContent)
+    // and may render non-breaking spaces, so comparison ignores whitespace.
+    document.body.innerHTML = '<div contenteditable="true"><p>Line one</p><p>Line two</p></div>';
+    const composer = document.querySelector<HTMLElement>('[contenteditable="true"]')!;
+
+    expect(composerTextCoversSegments(composer, [{ kind: 'text', text: 'Line one\nLine two' }])).toBe(true);
+  });
+
+  it('rejects composer text that is missing or truncates a segment', () => {
+    document.body.innerHTML = '<div contenteditable="true"><p>Line one</p></div>';
+    const composer = document.querySelector<HTMLElement>('[contenteditable="true"]')!;
+
+    expect(composerTextCoversSegments(composer, [{ kind: 'text', text: 'Line one\nLine two' }])).toBe(false);
+    expect(composerTextCoversSegments(composer, [{ kind: 'text', text: 'Different text' }])).toBe(false);
+  });
+
+  it('ignores mention segments when verifying composer text', () => {
+    // Mentions are rewritten into display names, so only the text segments
+    // around them can be asserted - but they must appear in order.
+    document.body.innerHTML = '<div contenteditable="true"><p>Hello <a>Scott H.</a>, welcome!</p></div>';
+    const composer = document.querySelector<HTMLElement>('[contenteditable="true"]')!;
+
+    expect(composerTextCoversSegments(composer, [
+      { kind: 'text', text: 'Hello ' },
+      { kind: 'mention', name: 'Scott Hanselman' },
+      { kind: 'text', text: ', welcome!' },
+    ])).toBe(true);
+
+    expect(composerTextCoversSegments(composer, [
+      { kind: 'text', text: ', welcome!' },
+      { kind: 'mention', name: 'Scott Hanselman' },
+      { kind: 'text', text: 'Hello ' },
+    ])).toBe(false);
   });
 
   it('clicks LinkedIn discard confirmations after closing a draft composer', () => {
