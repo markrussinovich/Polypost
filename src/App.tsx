@@ -116,6 +116,10 @@ function App() {
   }, [workspace]);
   const fitAbortRef = useRef<AbortController | null>(null);
   const authorAbortRef = useRef<AbortController | null>(null);
+  // What each platform's current AI version was generated from (master +
+  // style), so an idle pause after an unrelated change (a fork edit, a chip
+  // toggle) doesn't re-generate cards whose input hasn't changed.
+  const adaptedKeyRef = useRef<Map<PlatformId, string>>(new Map());
   // Link preview states whose fetch has already been kicked off, so failed or
   // low-value metadata can retry once without looping forever.
   const startedPreviewKeys = useRef<Set<string>>(new Set());
@@ -303,20 +307,25 @@ function App() {
       });
     }
 
-    if (selection.toFit.length === 0) {
+    const masterText = docToPlainText(workspace.master);
+    const masterMarkdown = docToMarkdown(workspace.master);
+    const adaptKey = `${config.stylePrompt}\u0000${masterMarkdown}`;
+    const toFit = selection.toFit.filter(
+      (id) => !(adaptedKeyRef.current.get(id) === adaptKey && aiVersionsRef.current.has(id)),
+    );
+
+    if (toFit.length === 0) {
       // The abort above orphaned any badges the superseded run was showing.
       setGenerating((prev) => (prev.size ? new Set<PlatformId>() : prev));
       return;
     }
 
-    const masterText = docToPlainText(workspace.master);
-    const masterMarkdown = docToMarkdown(workspace.master);
     // Replace rather than merge: aborting the previous run orphaned its badges.
-    setGenerating(new Set(selection.toFit));
+    setGenerating(new Set(toFit));
     setAiError(null);
 
     await Promise.all(
-      selection.toFit.map(async (id) => {
+      toFit.map(async (id) => {
         const spec = PLATFORMS_BY_ID[id];
 
         try {
@@ -327,6 +336,7 @@ function App() {
           const result = await generateFit({ config, spec, masterText: spec.allowUnicodeStyling ? masterMarkdown : masterText, style: config.stylePrompt, signal: controller.signal });
 
           if (!controller.signal.aborted) {
+            adaptedKeyRef.current.set(id, adaptKey);
             setAiVersions((prev) => new Map(prev).set(id, result.doc));
           }
         } catch (error) {

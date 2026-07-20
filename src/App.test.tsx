@@ -92,6 +92,27 @@ describe('App URL preview fetching', () => {
     expect(generateFit).toHaveBeenCalledWith(expect.objectContaining({ style: 'Make it concise and warm.' }));
   });
 
+  it('does not re-style platforms whose input has not changed', async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('Mock post editor'), { target: { value: 'Short post' } });
+    saveAiSettings('Make it concise and warm.');
+
+    expect(generateFit).toHaveBeenCalledTimes(3);
+
+    // Let the fit results apply, then trigger another idle pass with identical content.
+    await act(async () => {});
+    vi.mocked(generateFit).mockClear();
+
+    fireEvent.change(screen.getByLabelText('Mock post editor'), { target: { value: 'Short post' } });
+
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    expect(generateFit).not.toHaveBeenCalled();
+  });
+
   it('does not apply style guidance to cards when the editor is empty', () => {
     render(<App />);
 
