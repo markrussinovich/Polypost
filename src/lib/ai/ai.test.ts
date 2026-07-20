@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { EditorNode } from '../exportText';
 import { xSpec } from '../platforms/x';
 import { selectAutofit } from './autofit';
 import { defaultLlmConfig, isLlmReady, loadLlmConfig, saveLlmConfig } from './config';
 import { docToMarkdown, docToPlainText, plainTextToDoc } from './docText';
+import { generateText } from './llmClient';
 import { buildAuthorRequest, buildFitRequest } from './prompts';
 import { markdownToTipTap } from '../markdownToTipTap';
 
@@ -154,6 +155,29 @@ describe('selectAutofit', () => {
 
     expect(selection.toFit).toEqual([]);
     expect(selection.toClear).toEqual(['x']);
+  });
+});
+
+describe('generateText error redaction', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('scrubs the API key from provider error messages before they surface', async () => {
+    const apiKey = 'sk-super-secret';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: { message: `Incorrect API key provided: ${apiKey}` } }),
+    } as unknown as Response);
+
+    const config = { ...defaultLlmConfig(), enabled: true, apiKey };
+
+    await expect(generateText({ config, system: 's', prompt: 'p' })).rejects.toSatisfy((error: Error) => {
+      expect(error.message).not.toContain(apiKey);
+      expect(error.message).toContain('[redacted]');
+      return true;
+    });
   });
 });
 

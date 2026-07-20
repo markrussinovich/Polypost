@@ -19,15 +19,26 @@ function trimTrailingSlash(url: string): string {
 
 // Single entry point for all supported API shapes. Returns the model's plain-text reply.
 export async function generateText({ config, system, prompt, maxTokens = DEFAULT_MAX_TOKENS, signal }: GenerateOptions): Promise<string> {
-  if (config.provider === 'anthropic') {
-    return generateAnthropic({ config, system, prompt, maxTokens, signal });
-  }
+  try {
+    if (config.provider === 'anthropic') {
+      return await generateAnthropic({ config, system, prompt, maxTokens, signal });
+    }
 
-  if (config.provider === 'gemini') {
-    return generateGemini({ config, system, prompt, maxTokens, signal });
-  }
+    if (config.provider === 'gemini') {
+      return await generateGemini({ config, system, prompt, maxTokens, signal });
+    }
 
-  return generateOpenAI({ config, system, prompt, maxTokens, signal });
+    return await generateOpenAI({ config, system, prompt, maxTokens, signal });
+  } catch (error) {
+    // Server error bodies can echo the request's credentials (some gateways
+    // include the offending key in "incorrect API key" messages); every message
+    // that can reach the UI must be scrubbed, not just the test-connection path.
+    if (error instanceof LlmError) {
+      throw new LlmError(redactApiKey(error.message, config.apiKey));
+    }
+
+    throw error;
+  }
 }
 
 export interface TestResult {
