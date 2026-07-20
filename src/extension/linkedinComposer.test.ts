@@ -338,6 +338,35 @@ describe('linkedinComposer helpers', () => {
     expect(findLinkedInPostButton()).toBe(nativePost);
   });
 
+  it('never falls back to page-wide Post buttons when no composer dialog exists', () => {
+    // LinkedIn labels comment-submit buttons exactly "Post" too; without a
+    // composer dialog the finder must return null so the flow aborts instead
+    // of publishing the text as a comment on a random feed item.
+    document.body.innerHTML = `
+      <div class="feed-shared-update">
+        <button type="button" class="comments-comment-box__submit-button">Post</button>
+      </div>
+    `;
+    const commentSubmit = document.querySelector<HTMLElement>('button')!;
+    mockVisible(commentSubmit);
+
+    expect(findLinkedInPostButton()).toBeNull();
+  });
+
+  it('ignores Post-labelled buttons outside the composer dialog', () => {
+    document.body.innerHTML = `
+      <button type="button" id="comment-post">Post</button>
+      <div role="dialog">
+        <div class="ql-editor" contenteditable="true" data-placeholder="What do you want to talk about?"></div>
+        <button type="button" id="composer-post">Post</button>
+      </div>
+    `;
+    const editor = document.querySelector<HTMLElement>('.ql-editor');
+    mockVisible(editor!);
+
+    expect(findLinkedInPostButton()).toBe(document.querySelector('#composer-post'));
+  });
+
   it('prefers the media file input inside the composer dialog and skips the extension root', () => {
     document.body.innerHTML = `
       <div id="linkedin-post-formatter-extension-root">

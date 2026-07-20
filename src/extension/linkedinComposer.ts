@@ -69,11 +69,18 @@ export function findNativeComposerDialogs(root: ParentNode = document): HTMLElem
   });
 }
 
+// Only ever searches inside the share-composer dialog: LinkedIn labels its
+// comment-submit buttons exactly "Post" too, so a page-wide fallback could
+// publish the text as a comment on a random feed item if dialog detection
+// ever broke. No dialog means no Post button — the caller must abort.
 export function findLinkedInPostButton(root: ParentNode = document): HTMLElement | null {
   const dialog = findNativeComposerDialog(root);
-  const controls = dialog ? getButtonLikeControls(dialog) : getButtonLikeControls(root);
 
-  return controls.find((control) => {
+  if (!dialog) {
+    return null;
+  }
+
+  return getButtonLikeControls(dialog).find((control) => {
     return !control.closest(EXTENSION_ROOT_SELECTOR) && !isControlDisabled(control) && isPostActionControl(control);
   }) ?? null;
 }
