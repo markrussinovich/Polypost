@@ -8,12 +8,27 @@ export interface UnicodeStyleOptions {
 
 type UnicodeVariant = 'bold' | 'italic' | 'boldItalic' | 'monospace';
 
-// Bare URL matcher, shared with the X character-weighting logic (each URL
-// counts as a fixed 23 characters there). Kept in sync with the URL arm of
-// LINKEDIN_TOKEN_PATTERN below.
-export const URL_PATTERN = /https?:\/\/[^\s]+/gu;
+// Bare URL matcher, shared with the X/Mastodon character-weighting logic (each
+// URL counts as a fixed 23 characters there) and link-preview extraction.
+//
+// - The protocol is spelled with character classes ([hH]…) instead of an `i`
+//   flag because consumers rebuild the regex from `.source` with their own
+//   flags, which would silently drop case-insensitivity.
+// - The URL stops before common trailing sentence punctuation so exported
+//   links like `Label (https://url)` and prose like `see https://a.co, ok`
+//   count the punctuation as ordinary text, matching how X/Mastodon extract
+//   URLs. One level of balanced parentheses is allowed inside the URL (like
+//   twitter-text), so `https://en.wikipedia.org/wiki/A_(B)` matches whole
+//   while an unbalanced `(`/`)` ends the URL. Tradeoff: a URL that genuinely
+//   ends in stripped punctuation is slightly over-counted (its tail counts as
+//   text) — never under-counted, which would let a post exceed the platform
+//   limit and be rejected.
+//
+// Kept in sync with the URL arm of LINKEDIN_TOKEN_PATTERN below.
+const URL_PATTERN_SOURCE = String.raw`[hH][tT][tT][pP][sS]?://(?:\([^\s()]*\)|[^\s()])*(?:\([^\s()]*\)|[^\s.,!?;:)\]}'"»›])`;
+export const URL_PATTERN = new RegExp(URL_PATTERN_SOURCE, 'gu');
 
-const LINKEDIN_TOKEN_PATTERN = /(https?:\/\/[^\s]+|[#@][A-Za-z0-9_][A-Za-z0-9_.-]*)/gu;
+const LINKEDIN_TOKEN_PATTERN = new RegExp(`(${URL_PATTERN_SOURCE}|[#@][A-Za-z0-9_][A-Za-z0-9_.-]*)`, 'gu');
 const EMOJI_PATTERN = /[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u;
 const COMBINING_MARK_PATTERN = /\p{Mark}/u;
 
