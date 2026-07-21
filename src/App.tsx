@@ -115,6 +115,9 @@ function App() {
     workspaceRef.current = workspace;
   }, [workspace]);
   const fitAbortRef = useRef<AbortController | null>(null);
+  // An explicit sparkle-click fit in flight. The idle auto-adapt pass must not
+  // abort it (the user asked for it) — it works around it instead.
+  const manualFitRef = useRef<{ id: PlatformId; controller: AbortController } | null>(null);
   const authorAbortRef = useRef<AbortController | null>(null);
   // What each platform's current AI version was generated from (master +
   // style), so an idle pause after an unrelated change (a fork edit, a chip
@@ -297,6 +300,10 @@ function App() {
     const controller = new AbortController();
     fitAbortRef.current = controller;
 
+    // A manual fit the user explicitly requested keeps running; this pass just
+    // leaves its platform (and its badge) alone.
+    const manualId = manualFitRef.current?.id ?? null;
+
     const selection = selectAutoAdapt(config, workspace.master, workspace.enabledPlatforms, workspace.overrides, aiVersionsRef.current);
 
     if (selection.toClear.length > 0) {
@@ -309,19 +316,23 @@ function App() {
 
     const masterText = docToPlainText(workspace.master);
     const masterMarkdown = docToMarkdown(workspace.master);
-    const adaptKey = `${config.stylePrompt}\u0000${masterMarkdown}`;
+    const adaptKey = makeAdaptKey(config.stylePrompt, masterMarkdown);
     const toFit = selection.toFit.filter(
-      (id) => !(adaptedKeyRef.current.get(id) === adaptKey && aiVersionsRef.current.has(id)),
+      (id) => id !== manualId && !(adaptedKeyRef.current.get(id) === adaptKey && aiVersionsRef.current.has(id)),
     );
 
     if (toFit.length === 0) {
-      // The abort above orphaned any badges the superseded run was showing.
-      setGenerating((prev) => (prev.size ? new Set<PlatformId>() : prev));
+      // The abort above orphaned any badges the superseded run was showing
+      // (except a live manual fit's, which still owns its own).
+      setGenerating((prev) => {
+        const next = new Set(manualId && prev.has(manualId) ? [manualId] : []);
+        return next.size === prev.size ? prev : next;
+      });
       return;
     }
 
     // Replace rather than merge: aborting the previous run orphaned its badges.
-    setGenerating(new Set(toFit));
+    setGenerating(new Set(manualId ? [manualId, ...toFit] : toFit));
     setAiError(null);
 
     await Promise.all(
@@ -364,11 +375,12 @@ function App() {
       return;
     }
 
-    // Manual fit and auto-adapt both write aiVersions; starting one supersedes
-    // whatever the other had in flight (and takes over the badges).
+    // A user-requested fit supersedes whatever was in flight — the idle
+    // auto-adapt pass and any earlier manual fit — and takes over the badges.
     fitAbortRef.current?.abort();
+    manualFitRef.current?.controller.abort();
     const controller = new AbortController();
-    fitAbortRef.current = controller;
+    manualFitRef.current = { id, controller };
 
     const masterAtRequest = workspace.master;
     const overrideAtRequest = workspace.overrides[id];
@@ -377,7 +389,8 @@ function App() {
     setAiError(null);
 
     try {
-      const masterText = spec.allowUnicodeStyling ? docToMarkdown(workspace.master) : docToPlainText(workspace.master);
+      const masterMarkdown = docToMarkdown(workspace.master);
+      const masterText = spec.allowUnicodeStyling ? masterMarkdown : docToPlainText(workspace.master);
       const result = await generateFit({ config: llmConfig, spec, masterText, style: llmConfig.stylePrompt, signal: controller.signal });
 
       if (controller.signal.aborted) {
@@ -392,6 +405,9 @@ function App() {
         return;
       }
 
+      // Record what this version was generated from so the idle pass doesn't
+      // immediately regenerate (and visibly replace) the accepted result.
+      adaptedKeyRef.current.set(id, makeAdaptKey(llmConfig.stylePrompt, masterMarkdown));
       // The sparkle only appears on a forked (edited) card, so applying the AI
       // version means discarding the manual edit: drop the override so the AI
       // version (which would otherwise be hidden behind it) becomes visible.
@@ -402,6 +418,10 @@ function App() {
         setAiError(`${spec.label}: ${error instanceof Error ? error.message : 'AI request failed.'}`);
       }
     } finally {
+      if (manualFitRef.current?.controller === controller) {
+        manualFitRef.current = null;
+      }
+
       if (!controller.signal.aborted) {
         setGenerating((prev) => {
           const next = new Set(prev);
@@ -444,6 +464,7 @@ function App() {
       const doc = markdownToTipTap(text);
       setWorkspace((prev) => applyMasterEdit(prev, doc));
       setAiVersions(new Map()); // master replaced — drop stale AI versions
+      adaptedKeyRef.current.clear();
       setEditorVersion((version) => version + 1);
       setMasterVersion((version) => version + 1);
     } catch (error) {
@@ -514,6 +535,7 @@ function App() {
   function performReplaceDocument(nextMaster: EditorNode) {
     setWorkspace((prev) => applyMasterEdit(prev, nextMaster));
     setAiVersions(new Map());
+    adaptedKeyRef.current.clear();
     setEditorVersion((version) => version + 1);
     setStorageNotice(null);
   }
@@ -601,6 +623,7 @@ function App() {
   function performReset() {
     setWorkspace((prev) => ({ ...prev, master: EMPTY_DOCUMENT, overrides: {} }));
     setAiVersions(new Map());
+    adaptedKeyRef.current.clear();
     setActivePaneEditor(null);
     setSources([]);
     handleSetImageAttachment(null);
@@ -664,6 +687,10 @@ function App() {
       overrides: draft.overrides ?? {},
       enabledPlatforms: draft.enabledPlatforms ?? prev.enabledPlatforms,
     }));
+    // The restored AI versions were generated from the snapshot's inputs, not
+    // the current ones — drop the cache keys or the idle pass would wrongly
+    // skip regenerating them under the current style/master.
+    adaptedKeyRef.current.clear();
     setAiVersions(new Map(Object.entries(draft.aiVersions ?? {}) as [PlatformId, EditorNode][]));
     setActivePaneEditor(null);
     setEditorVersion((version) => version + 1);
@@ -863,6 +890,11 @@ function describeConfirmAction(action: ConfirmAction): { title: string; message:
 
 function shouldAutoAdapt(config: LlmConfig): boolean {
   return Boolean(config.stylePrompt.trim()) || config.autoFit;
+}
+
+// Cache key for adaptedKeyRef: the inputs an AI platform version derives from.
+function makeAdaptKey(stylePrompt: string, masterMarkdown: string): string {
+  return JSON.stringify([stylePrompt, masterMarkdown]);
 }
 
 function selectAutoAdapt(

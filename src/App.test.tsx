@@ -113,6 +113,32 @@ describe('App URL preview fetching', () => {
     expect(generateFit).not.toHaveBeenCalled();
   });
 
+  it('regenerates restored AI versions instead of wrongly skipping them', async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('Mock post editor'), { target: { value: 'Short post' } });
+    saveAiSettings('Make it concise and warm.');
+    expect(generateFit).toHaveBeenCalledTimes(3);
+    await act(async () => {});
+
+    fireEvent.click(screen.getByText('Saved drafts'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    vi.mocked(generateFit).mockClear();
+
+    // Restore the snapshot (list button, then the dialog's confirm button).
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+    const restoreButtons = screen.getAllByRole('button', { name: 'Restore' });
+    fireEvent.click(restoreButtons[restoreButtons.length - 1]);
+
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    // The snapshot's AI versions came from its own inputs; the idle pass must
+    // re-derive them rather than trust the pre-restore cache keys.
+    expect(generateFit).toHaveBeenCalledTimes(3);
+  });
+
   it('does not apply style guidance to cards when the editor is empty', () => {
     render(<App />);
 
