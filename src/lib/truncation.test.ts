@@ -34,6 +34,29 @@ describe('collapseToPreview', () => {
     expect(result.slice(0, -1).trimEnd().endsWith('word')).toBe(true);
   });
 
+  it('does not include any character of the first hidden line when a wrap cuts', () => {
+    // 1 visible line of ~3 chars: 'abc' wraps before 'd', so 'd' belongs to
+    // the hidden second line and must not leak into the preview.
+    const tiny: TruncationConfig = { visibleLines: 1, approximateCharacters: 100, approximateCharactersPerLine: 3 };
+
+    expect(collapseToPreview('abcdef', tiny)).toBe('abc…');
+  });
+
+  it('never cuts inside a regional-indicator flag', () => {
+    // Cap of 4 graphemes: with code-point iteration the cut lands between the
+    // two halves of the second flag, leaving a dangling regional indicator.
+    const tiny: TruncationConfig = { visibleLines: 2, approximateCharacters: 4, approximateCharactersPerLine: 10 };
+
+    expect(collapseToPreview('ab 🇺🇸🇺🇸', tiny)).toBe('ab 🇺🇸…');
+  });
+
+  it('never cuts inside a ZWJ emoji sequence', () => {
+    // Each family emoji is five code points; a code-point cut splits it.
+    const tiny: TruncationConfig = { visibleLines: 2, approximateCharacters: 4, approximateCharactersPerLine: 10 };
+
+    expect(collapseToPreview('ab 👨‍👩‍👧👨‍👩‍👧', tiny)).toBe('ab 👨‍👩‍👧…');
+  });
+
   it('agrees with isTextTruncated about whether anything is hidden', () => {
     const fits = 'Short post.';
     const overflows = 'a\nb\nc\nd\ne';
@@ -43,5 +66,18 @@ describe('collapseToPreview', () => {
 
     expect(isTextTruncated(overflows, config)).toBe(true);
     expect(collapseToPreview(overflows, config)).not.toBe(overflows);
+  });
+
+  it('agrees with isTextTruncated for emoji-heavy text', () => {
+    // 100 family emoji = 100 graphemes (fits) but 500 code points; measuring
+    // the two functions in different units rendered a dead "…more" toggle.
+    const emojiHeavy = '👨‍👩‍👧'.repeat(100);
+
+    expect(isTextTruncated(emojiHeavy, config)).toBe(false);
+    expect(collapseToPreview(emojiHeavy, config)).toBe(emojiHeavy);
+
+    const emojiOverflow = '👨‍👩‍👧'.repeat(211);
+    expect(isTextTruncated(emojiOverflow, config)).toBe(true);
+    expect(collapseToPreview(emojiOverflow, config)).not.toBe(emojiOverflow);
   });
 });

@@ -2,12 +2,13 @@ import { StrictMode } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 
-import { LinkedInComposerOverlay } from './LinkedInComposerOverlay';
+import { LinkedInComposerOverlay, type PostOutcome, type PostResult } from './LinkedInComposerOverlay';
 import { parseMentionSegments, type MentionSegment } from '../lib/mentions';
 import {
   attachFilesToLinkedInComposer,
   clickLinkedInControl,
   closeNativeLinkedInComposer,
+  composerTextCoversSegments,
   dismissNativeComposerDiscardConfirmation,
   findLinkedInComposer,
   findLinkedInLinkPreview,
@@ -23,6 +24,7 @@ import {
   queryAllDeep,
   setLinkedInComposerSegments,
   setLinkedInComposerText,
+  type ComposerSegmentsResult,
 } from './linkedinComposer';
 import './extension.css';
 
@@ -96,7 +98,10 @@ let hideLoopId: number | null = null;
 let suppressMode: 'hidden' | 'focusable' = 'hidden';
 
 function mountFormatter() {
-  if (mountedContainer?.isConnected) {
+  // The DOM check also covers a root owned by another injection of this
+  // script (toolbar re-injection runs in a fresh scope where
+  // mountedContainer is null).
+  if (mountedContainer?.isConnected || document.getElementById(ROOT_ID)) {
     return;
   }
 
@@ -169,9 +174,15 @@ function closeFormatter() {
   closeNativeComposer();
 }
 
-async function postThroughLinkedIn(text: string, files: File[]): Promise<boolean> {
+async function postThroughLinkedIn(text: string, files: File[]): Promise<PostResult> {
   log('postThroughLinkedIn start, textLength:', text.length, 'files:', files.length);
   isBridgingToNativeComposer = true;
+  const mentions = { requested: 0, applied: 0 };
+  const finish = (outcome: PostOutcome): PostResult => ({
+    outcome,
+    mentionsRequested: mentions.requested,
+    mentionsApplied: mentions.applied,
+  });
 
   // The formatter stays open ("Posting...") and the native composer stays
   // hidden for the whole bridge, so the user never sees LinkedIn's editor.
@@ -200,7 +211,7 @@ async function postThroughLinkedIn(text: string, files: File[]): Promise<boolean
     if (!composer) {
       log('FAILED: no composer found');
       dumpDomState('post-no-composer');
-      return false;
+      return finish('failed');
     }
 
     // Switch suppression to focusable mode so we can focus + insert text. The
@@ -213,7 +224,7 @@ async function postThroughLinkedIn(text: string, files: File[]): Promise<boolean
 
       if (!attached) {
         log('FAILED: could not attach media');
-        return false;
+        return finish('failed');
       }
 
       // Wait until the upload registers. The redesigned composer attaches
@@ -224,7 +235,7 @@ async function postThroughLinkedIn(text: string, files: File[]): Promise<boolean
 
       if (!mediaAttached) {
         log('FAILED: media never attached');
-        return false;
+        return finish('failed');
       }
 
       // Media processing can re-render the editor, so re-acquire it.
@@ -233,10 +244,10 @@ async function postThroughLinkedIn(text: string, files: File[]): Promise<boolean
 
     if (text.trim()) {
       const segments = parseMentionSegments(text);
-      let wrote = await writeComposerContent(composer, text, segments);
-      log('write composer content result:', wrote);
+      let writeResult = await writeComposerContent(composer, text, segments);
+      log('write composer content result:', writeResult.inserted);
 
-      if (wrote && files.length > 0) {
+      if (writeResult.inserted && files.length > 0) {
         // Late media re-renders can wipe freshly inserted text; verify it
         // stuck and re-insert once if not.
         await wait(800);
@@ -245,14 +256,28 @@ async function postThroughLinkedIn(text: string, files: File[]): Promise<boolean
         if (!composerContainsContent(current, segments)) {
           log('text wiped by media re-render, re-inserting');
           composer = current;
-          wrote = await writeComposerContent(composer, text, segments);
-          log('write composer content retry result:', wrote);
+          writeResult = await writeComposerContent(composer, text, segments);
+          log('write composer content retry result:', writeResult.inserted);
         }
       }
 
-      if (!wrote) {
+      mentions.requested = writeResult.mentionsRequested;
+      mentions.applied = writeResult.mentionsApplied;
+
+      if (!writeResult.inserted) {
         log('FAILED: could not write text');
-        return false;
+        return finish('failed');
+      }
+
+      // Never click Post on unverified text: a mid-bridge focus steal or a
+      // swallowed insert could otherwise publish a truncated post. (The media
+      // path re-verifies above after its re-render window.)
+      const written = findLinkedInComposer() ?? composer;
+
+      if (!composerTextCoversSegments(written, segments)) {
+        log('FAILED: composer text does not cover the draft, not clicking Post');
+        dumpDomState('post-text-mismatch');
+        return finish('failed');
       }
 
       // Attached media suppresses link previews, so only wait when there is
@@ -271,7 +296,7 @@ async function postThroughLinkedIn(text: string, files: File[]): Promise<boolean
 
     if (!postButton) {
       log('FAILED: native Post button never enabled');
-      return false;
+      return finish('failed');
     }
 
     clickLinkedInControl(postButton);
@@ -282,19 +307,33 @@ async function postThroughLinkedIn(text: string, files: File[]): Promise<boolean
     );
     log('native composer closed after post:', composerClosed);
 
+    if (!composerClosed) {
+      // Post outcome unknown: the Post click went through but LinkedIn never
+      // confirmed by closing its dialog. Keep the formatter open so the user
+      // sees the unconfirmed-outcome notice (and their draft/attachments are
+      // not lost), and put suppression back in hidden mode so the still-open
+      // native dialog cannot steal focus. Closing the formatter dismisses or
+      // reveals the native composer as usual.
+      log('WARNING: composer still open after Post click, outcome unknown');
+      suppressNativeComposer('hidden');
+      hideNativeComposer();
+      return finish('unknown');
+    }
+
+    log('SUCCESS: posted through LinkedIn');
+
+    if (mentions.requested > mentions.applied) {
+      // Some mentions degraded to plain text: keep the formatter open so the
+      // overlay's notice is visible. The share dialog is already gone, so
+      // just restore default suppression; closing the formatter cleans up.
+      suppressNativeComposer('hidden');
+      return finish('posted');
+    }
+
     isFormatterOpen = false;
     renderFormatter(true);
     showNativeComposer();
-
-    if (!composerClosed) {
-      // Post outcome unknown; hand LinkedIn's composer back to the user
-      // instead of leaving an invisible dialog blocking the page.
-      log('WARNING: composer still open after Post click, revealing it');
-    } else {
-      log('SUCCESS: posted through LinkedIn');
-    }
-
-    return true;
+    return finish('posted');
   } finally {
     isBridgingToNativeComposer = false;
   }
@@ -358,15 +397,20 @@ async function waitForMediaAttached(): Promise<boolean> {
 
 // Plain text inserts in one shot; text with mention tokens goes through the
 // segment writer, which resolves each token via LinkedIn's mention typeahead.
-// Unresolved mentions degrade to plain "@name" text inside the post.
-async function writeComposerContent(composer: HTMLElement, text: string, segments: MentionSegment[]): Promise<boolean> {
+// Unresolved mentions degrade to plain "@name" text inside the post; the
+// returned counts flow back to the overlay so the user is told about them.
+async function writeComposerContent(
+  composer: HTMLElement,
+  text: string,
+  segments: MentionSegment[],
+): Promise<ComposerSegmentsResult> {
   if (!segments.some((segment) => segment.kind === 'mention')) {
-    return setLinkedInComposerText(composer, text);
+    return { inserted: setLinkedInComposerText(composer, text), mentionsRequested: 0, mentionsApplied: 0 };
   }
 
   const result = await setLinkedInComposerSegments(composer, segments);
   log('mentions resolved:', result.mentionsApplied, 'of', result.mentionsRequested);
-  return result.inserted;
+  return result;
 }
 
 function composerContainsContent(composer: HTMLElement, segments: MentionSegment[]): boolean {
@@ -578,22 +622,48 @@ function renderMountError(container: HTMLElement, error: unknown) {
   container.setAttribute(DIAGNOSTIC_ATTRIBUTE, 'mount-error');
 }
 
-scheduleMount();
+const OPEN_EVENT_NAME = 'linkedin-post-formatter:open';
+const MOUNTED_FLAG = '__lipfMounted';
 
-const observer = new MutationObserver(() => {
+type MountFlagWindow = Window & { [MOUNTED_FLAG]?: boolean };
+
+function initialize() {
+  // The manifest injects this script on every LinkedIn page and the toolbar
+  // click re-injects the same file in a fresh scope. Guard against the second
+  // copy: it would create a duplicate root/React tree, a second click
+  // listener and MutationObserver, and both copies would fight over the
+  // single native-composer suppression style, which can break text insertion
+  // mid-post. When already mounted, just ask the live copy to open.
+  const flagWindow = window as MountFlagWindow;
+
+  if (document.getElementById(ROOT_ID) || flagWindow[MOUNTED_FLAG]) {
+    log('already mounted, forwarding open request to the existing instance');
+    document.dispatchEvent(new CustomEvent(OPEN_EVENT_NAME));
+    return;
+  }
+
+  flagWindow[MOUNTED_FLAG] = true;
+
   scheduleMount();
 
-  if (isFormatterOpen) {
-    window.setTimeout(hideNativeComposer, 0);
-  }
-});
-observer.observe(document.documentElement, { childList: true, subtree: true });
-document.addEventListener('click', handleDocumentStartPostEvent, true);
-document.addEventListener('linkedin-post-formatter:open', openFormatter);
+  const observer = new MutationObserver(() => {
+    scheduleMount();
 
-window.addEventListener('beforeunload', () => {
-  observer.disconnect();
-  document.removeEventListener('click', handleDocumentStartPostEvent, true);
-  document.removeEventListener('linkedin-post-formatter:open', openFormatter);
-  unmountFormatter();
-});
+    if (isFormatterOpen) {
+      window.setTimeout(hideNativeComposer, 0);
+    }
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  document.addEventListener('click', handleDocumentStartPostEvent, true);
+  document.addEventListener(OPEN_EVENT_NAME, openFormatter);
+
+  window.addEventListener('beforeunload', () => {
+    observer.disconnect();
+    document.removeEventListener('click', handleDocumentStartPostEvent, true);
+    document.removeEventListener(OPEN_EVENT_NAME, openFormatter);
+    unmountFormatter();
+    delete flagWindow[MOUNTED_FLAG];
+  });
+}
+
+initialize();

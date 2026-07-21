@@ -24,4 +24,5 @@ export const xSpec: PlatformSpec = {
   warnings: [],
   // X shows a summary_large_image card: big image, title, domain — no description.
   linkPreview: { layout: 'large', showDescription: false },
+  disclaimer: 'Links count as 23 characters. The count is a close approximation of X’s weighted counting.',
 };

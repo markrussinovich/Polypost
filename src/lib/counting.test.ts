@@ -51,6 +51,52 @@ describe('countCharacters', () => {
       // "see " (4) + URL (23) = 27
       expect(countCharacters('see https://a.co', 'x-weighted')).toBe(27);
     });
+
+    it('keeps trailing sentence punctuation out of the URL', () => {
+      // "see " (4) + URL (23) + "," (1) = 28 — X treats the comma as text.
+      expect(countCharacters('see https://a.co,', 'x-weighted')).toBe(28);
+      // Exported links render as "Label (https://url)": "Go " (3) + "(" (1) + URL (23) + ")" (1) = 28.
+      expect(countCharacters('Go (https://a.co)', 'x-weighted')).toBe(28);
+    });
+
+    it('keeps a balanced parenthesised URL intact', () => {
+      expect(countCharacters('https://en.wikipedia.org/wiki/A_(B)', 'x-weighted')).toBe(23);
+    });
+
+    it('matches URLs with an uppercase protocol', () => {
+      expect(countCharacters('HTTPS://example.com', 'x-weighted')).toBe(23);
+    });
+
+    it('weighs bare domains as URLs like X does', () => {
+      expect(countCharacters('example.com/path', 'x-weighted')).toBe(23);
+      // "see " (4) + a.co (23) + " now" (4) = 31.
+      expect(countCharacters('see a.co now', 'x-weighted')).toBe(31);
+    });
+
+    it('does not treat email addresses or plain sentences as URLs', () => {
+      expect(countCharacters('mail me@example.com', 'x-weighted')).toBe(19);
+      // "e.g" has a one-letter TLD and stays literal.
+      expect(countCharacters('e.g. this', 'x-weighted')).toBe(9);
+    });
+
+    it('keeps dotted tech tokens with non-TLD extensions literal', () => {
+      expect(countCharacters('I love Node.js', 'x-weighted')).toBe(14);
+      expect(countCharacters('open file.txt now', 'x-weighted')).toBe(17);
+      expect(countCharacters('edit package.json', 'x-weighted')).toBe(17);
+      expect(countCharacters('see README.md', 'x-weighted')).toBe(13);
+      // ...while real bare domains still weigh 23: "try " (4) + 23 = 27.
+      expect(countCharacters('try aka.ms/Polypost', 'x-weighted')).toBe(27);
+    });
+
+    it('weighs every emoji grapheme as 2 regardless of its code points', () => {
+      expect(countCharacters('🚀', 'x-weighted')).toBe(2);
+      expect(countCharacters('👨‍👩‍👧', 'x-weighted')).toBe(2); // ZWJ family
+      expect(countCharacters('👍🏽', 'x-weighted')).toBe(2); // skin tone
+      expect(countCharacters('🇺🇸', 'x-weighted')).toBe(2); // flag
+      expect(countCharacters('1️⃣', 'x-weighted')).toBe(2); // keycap
+      // "hi " (3) + family (2) = 5
+      expect(countCharacters('hi 👨‍👩‍👧', 'x-weighted')).toBe(5);
+    });
   });
 
   describe('mastodon', () => {
@@ -63,6 +109,22 @@ describe('countCharacters', () => {
       expect(countCharacters('hello', 'mastodon')).toBe(5);
       expect(countCharacters('日本語', 'mastodon')).toBe(3);
       expect(countCharacters('🚀', 'mastodon')).toBe(1);
+    });
+
+    it('keeps trailing sentence punctuation out of the URL', () => {
+      // "see " (4) + URL (23) + "," (1) = 28.
+      expect(countCharacters('see https://a.co,', 'mastodon')).toBe(28);
+      // "Go " (3) + "(" (1) + URL (23) + ")" (1) = 28.
+      expect(countCharacters('Go (https://a.co)', 'mastodon')).toBe(28);
+    });
+
+    it('counts bare domains as a flat 23 and matches uppercase protocols', () => {
+      expect(countCharacters('example.com/path', 'mastodon')).toBe(23);
+      expect(countCharacters('HTTPS://example.com', 'mastodon')).toBe(23);
+    });
+
+    it('does not treat email addresses as URLs', () => {
+      expect(countCharacters('mail me@example.com', 'mastodon')).toBe(19);
     });
   });
 });

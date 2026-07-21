@@ -37,6 +37,7 @@ export function EditorShell({
 }: EditorShellProps) {
   const showFeedControls = Boolean(onFeedPreviewModeChange);
   const [isDragActive, setIsDragActive] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   const editor = useEditor({
     extensions: editorExtensions,
     content: initialContent as JSONContent,
@@ -64,6 +65,8 @@ export function EditorShell({
       return;
     }
 
+    setImportError(null);
+
     try {
       const importedDocument = await importDocumentFile(file);
       const nextDocument = importedDocument.format === 'html'
@@ -72,7 +75,8 @@ export function EditorShell({
 
       onReplaceDocument(nextDocument);
     } catch (error) {
-      console.error(error);
+      // importDocumentFile throws user-facing messages (e.g. legacy .doc advice).
+      setImportError(error instanceof Error ? error.message : 'The file could not be imported.');
     }
   }
 
@@ -125,6 +129,7 @@ export function EditorShell({
   return (
     <div className="editor-shell">
       <Toolbar editor={editor} onImportFile={handleImportFile} onReset={onReset} />
+      {importError ? <p className="inline-alert panel-alert" role="alert">{importError}</p> : null}
       {showFeedControls ? (
         <div className="editor-preview-controls" aria-label="Editor preview width">
           <span>View</span>

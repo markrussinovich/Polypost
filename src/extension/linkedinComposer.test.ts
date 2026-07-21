@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   attachFilesToLinkedInComposer,
   closeNativeLinkedInComposer,
+  composerTextCoversSegments,
   dismissNativeComposerDiscardConfirmation,
   findComposerMentionEntity,
   findLinkedInComposer,
@@ -233,6 +234,33 @@ describe('linkedinComposer helpers', () => {
     expect(findMentionTypeaheadOption('jane doe')).toBeNull();
   });
 
+  it('never clicks an option whose text merely starts with the mention name', () => {
+    // Without the hit-text markup an option's textContent is name + headline;
+    // a prefix match would be one markup change away from mentioning the
+    // wrong person, so the mention must degrade to plain text instead.
+    document.body.innerHTML = `
+      <div class="editor-typeahead__typeahead-tray" role="listbox">
+        <div role="option">Scott Hanselman VP of Developer Community at Microsoft</div>
+      </div>
+    `;
+    document.querySelectorAll<HTMLElement>('[role="option"]').forEach(mockVisible);
+
+    expect(findMentionTypeaheadOption('scott hanselman')).toBeNull();
+  });
+
+  it('accepts an option without hit-text markup only when its entire text is the name', () => {
+    document.body.innerHTML = `
+      <div class="editor-typeahead__typeahead-tray" role="listbox">
+        <div role="option">Scott Hanselman VP of Developer Community at Microsoft</div>
+        <div role="option"> Scott  Hanselman </div>
+      </div>
+    `;
+    const options = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'));
+    options.forEach(mockVisible);
+
+    expect(findMentionTypeaheadOption('scott hanselman')).toBe(options[1]);
+  });
+
   it('ignores typeahead options inside the extension root or outside a typeahead surface', () => {
     document.body.innerHTML = `
       <div id="linkedin-post-formatter-extension-root">
@@ -275,6 +303,58 @@ describe('linkedinComposer helpers', () => {
     expect(editor.textContent).toBe('Hello !');
   });
 
+  it('re-focuses the composer before every segment insert', async () => {
+    // Inserts go through the global selection over multiple seconds, so each
+    // segment must re-focus the composer in case something stole focus.
+    document.body.innerHTML = '<div contenteditable="true"></div>';
+    const editor = document.querySelector<HTMLElement>('[contenteditable="true"]')!;
+    const focusSpy = vi.spyOn(editor, 'focus');
+
+    await setLinkedInComposerSegments(editor, [
+      { kind: 'text', text: 'First ' },
+      { kind: 'text', text: 'second' },
+    ]);
+
+    // One initial focus plus one per segment.
+    expect(focusSpy.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('verifies composer text covers the draft despite whitespace rewrites', () => {
+    // LinkedIn turns newlines into paragraphs (dropping them from textContent)
+    // and may render non-breaking spaces, so comparison ignores whitespace.
+    document.body.innerHTML = '<div contenteditable="true"><p>Line one</p><p>Line two</p></div>';
+    const composer = document.querySelector<HTMLElement>('[contenteditable="true"]')!;
+
+    expect(composerTextCoversSegments(composer, [{ kind: 'text', text: 'Line one\nLine two' }])).toBe(true);
+  });
+
+  it('rejects composer text that is missing or truncates a segment', () => {
+    document.body.innerHTML = '<div contenteditable="true"><p>Line one</p></div>';
+    const composer = document.querySelector<HTMLElement>('[contenteditable="true"]')!;
+
+    expect(composerTextCoversSegments(composer, [{ kind: 'text', text: 'Line one\nLine two' }])).toBe(false);
+    expect(composerTextCoversSegments(composer, [{ kind: 'text', text: 'Different text' }])).toBe(false);
+  });
+
+  it('ignores mention segments when verifying composer text', () => {
+    // Mentions are rewritten into display names, so only the text segments
+    // around them can be asserted - but they must appear in order.
+    document.body.innerHTML = '<div contenteditable="true"><p>Hello <a>Scott H.</a>, welcome!</p></div>';
+    const composer = document.querySelector<HTMLElement>('[contenteditable="true"]')!;
+
+    expect(composerTextCoversSegments(composer, [
+      { kind: 'text', text: 'Hello ' },
+      { kind: 'mention', name: 'Scott Hanselman' },
+      { kind: 'text', text: ', welcome!' },
+    ])).toBe(true);
+
+    expect(composerTextCoversSegments(composer, [
+      { kind: 'text', text: ', welcome!' },
+      { kind: 'mention', name: 'Scott Hanselman' },
+      { kind: 'text', text: 'Hello ' },
+    ])).toBe(false);
+  });
+
   it('clicks LinkedIn discard confirmations after closing a draft composer', () => {
     document.body.innerHTML = `
       <div role="dialog">
@@ -290,6 +370,59 @@ describe('linkedinComposer helpers', () => {
     expect(dismissNativeComposerDiscardConfirmation()).toBe(true);
 
     expect(discardHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it('never auto-confirms unrelated destructive dialogs', () => {
+    // A feed item's Delete post? prompt carries delete/yes labels; the
+    // dismisser must not touch it (previously yes/ok/delete were clicked in
+    // any dialog page-wide).
+    document.body.innerHTML = `
+      <div role="alertdialog">
+        <p>Delete post?</p>
+        <p>This action cannot be undone.</p>
+        <button type="button">Cancel</button>
+        <button type="button">Delete</button>
+        <button type="button">Yes</button>
+      </div>
+    `;
+    const clickHandler = vi.fn();
+    document.querySelectorAll('button').forEach((button) => button.addEventListener('click', clickHandler));
+
+    expect(dismissNativeComposerDiscardConfirmation()).toBe(false);
+
+    expect(clickHandler).not.toHaveBeenCalled();
+  });
+
+  it('leaves discard confirmations outside the share flow alone', () => {
+    // A profile-edit Discard changes? prompt mentions neither post nor draft
+    // and carries no share-flow markers, so it stays for the user.
+    document.body.innerHTML = `
+      <div role="alertdialog">
+        <p>Discard changes?</p>
+        <button type="button">Keep editing</button>
+        <button type="button">Discard</button>
+      </div>
+    `;
+    const clickHandler = vi.fn();
+    document.querySelectorAll('button').forEach((button) => button.addEventListener('click', clickHandler));
+
+    expect(dismissNativeComposerDiscardConfirmation()).toBe(false);
+
+    expect(clickHandler).not.toHaveBeenCalled();
+  });
+
+  it('ignores Next/Done buttons in dialogs without share-flow markers', () => {
+    // An unrelated wizard dialog must not be advanced while the bridge polls
+    // for the media editor.
+    document.body.innerHTML = `
+      <div role="dialog" id="unrelated-wizard">
+        <p>Set up your newsletter</p>
+        <button type="button">Next</button>
+      </div>
+    `;
+    mockVisible(document.querySelector<HTMLElement>('#unrelated-wizard')!);
+
+    expect(findLinkedInMediaNextButton()).toBeNull();
   });
 
   it('finds the composer inside a shadow root', () => {
@@ -336,6 +469,35 @@ describe('linkedinComposer helpers', () => {
     nativePost!.disabled = false;
 
     expect(findLinkedInPostButton()).toBe(nativePost);
+  });
+
+  it('never falls back to page-wide Post buttons when no composer dialog exists', () => {
+    // LinkedIn labels comment-submit buttons exactly "Post" too; without a
+    // composer dialog the finder must return null so the flow aborts instead
+    // of publishing the text as a comment on a random feed item.
+    document.body.innerHTML = `
+      <div class="feed-shared-update">
+        <button type="button" class="comments-comment-box__submit-button">Post</button>
+      </div>
+    `;
+    const commentSubmit = document.querySelector<HTMLElement>('button')!;
+    mockVisible(commentSubmit);
+
+    expect(findLinkedInPostButton()).toBeNull();
+  });
+
+  it('ignores Post-labelled buttons outside the composer dialog', () => {
+    document.body.innerHTML = `
+      <button type="button" id="comment-post">Post</button>
+      <div role="dialog">
+        <div class="ql-editor" contenteditable="true" data-placeholder="What do you want to talk about?"></div>
+        <button type="button" id="composer-post">Post</button>
+      </div>
+    `;
+    const editor = document.querySelector<HTMLElement>('.ql-editor');
+    mockVisible(editor!);
+
+    expect(findLinkedInPostButton()).toBe(document.querySelector('#composer-post'));
   });
 
   it('prefers the media file input inside the composer dialog and skips the extension root', () => {
@@ -414,7 +576,7 @@ describe('linkedinComposer helpers', () => {
       <div id="linkedin-post-formatter-extension-root">
         <div role="dialog"><button type="button">Next</button></div>
       </div>
-      <div role="dialog" id="media-editor">
+      <div role="dialog" id="media-editor" class="share-box-v2__modal">
         <button type="button" disabled>Next</button>
       </div>
     `;
@@ -433,7 +595,7 @@ describe('linkedinComposer helpers', () => {
       <div role="dialog" class="vjs-modal-dialog vjs-text-track-settings" id="vjs-dialog">
         <button type="button">Done</button>
       </div>
-      <div role="dialog" id="hidden-dialog">
+      <div role="dialog" id="hidden-dialog" class="media-editor">
         <button type="button">Next</button>
       </div>
     `;

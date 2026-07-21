@@ -19,15 +19,26 @@ function trimTrailingSlash(url: string): string {
 
 // Single entry point for all supported API shapes. Returns the model's plain-text reply.
 export async function generateText({ config, system, prompt, maxTokens = DEFAULT_MAX_TOKENS, signal }: GenerateOptions): Promise<string> {
-  if (config.provider === 'anthropic') {
-    return generateAnthropic({ config, system, prompt, maxTokens, signal });
-  }
+  try {
+    if (config.provider === 'anthropic') {
+      return await generateAnthropic({ config, system, prompt, maxTokens, signal });
+    }
 
-  if (config.provider === 'gemini') {
-    return generateGemini({ config, system, prompt, maxTokens, signal });
-  }
+    if (config.provider === 'gemini') {
+      return await generateGemini({ config, system, prompt, maxTokens, signal });
+    }
 
-  return generateOpenAI({ config, system, prompt, maxTokens, signal });
+    return await generateOpenAI({ config, system, prompt, maxTokens, signal });
+  } catch (error) {
+    // Server error bodies can echo the request's credentials (some gateways
+    // include the offending key in "incorrect API key" messages); every message
+    // that can reach the UI must be scrubbed, not just the test-connection path.
+    if (error instanceof LlmError) {
+      throw new LlmError(redactApiKey(error.message, config.apiKey));
+    }
+
+    throw error;
+  }
 }
 
 export interface TestResult {
@@ -36,17 +47,27 @@ export interface TestResult {
 }
 
 // A minimal round-trip used by the settings "Test connection" button.
+// The token cap has to leave room for hidden reasoning: reasoning-class models
+// spend the whole budget thinking at a tiny cap and return empty content,
+// which would fail the test even though the key and endpoint are fine.
+const TEST_MAX_TOKENS = 256;
+const TEST_TIMEOUT_MS = 15_000;
+
 export async function testConnection(config: LlmConfig, signal?: AbortSignal): Promise<TestResult> {
   try {
     const reply = await generateText({
       config,
       system: 'You are a connection test. Reply with exactly: OK',
       prompt: 'ping',
-      maxTokens: 16,
-      signal,
+      maxTokens: TEST_MAX_TOKENS,
+      signal: signal ?? AbortSignal.timeout(TEST_TIMEOUT_MS),
     });
     return { ok: true, message: `Connected. Model replied: "${reply.slice(0, 40)}"` };
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      return { ok: false, message: `The endpoint did not respond within ${TEST_TIMEOUT_MS / 1000} seconds.` };
+    }
+
     const message = error instanceof Error ? error.message : 'Connection failed.';
     return { ok: false, message: redactApiKey(message, config.apiKey) };
   }

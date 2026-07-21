@@ -16,9 +16,12 @@ export function isTextTruncated(text: string, config: TruncationConfig): boolean
     return false;
   }
 
+  // Grapheme clusters, matching collapseToPreview — measuring here in code
+  // points would claim emoji-heavy text is truncated while the collapse
+  // returns it whole, rendering a "…more" toggle that does nothing.
   return (
     countApproximateLines(normalized, config.approximateCharactersPerLine) > config.visibleLines ||
-    Array.from(normalized).length > config.approximateCharacters
+    graphemeClusters(normalized).length > config.approximateCharacters
   );
 }
 
@@ -28,7 +31,7 @@ function countApproximateLines(text: string, approximateCharactersPerLine: numbe
       return lineCount + 1;
     }
 
-    return lineCount + Math.max(1, Math.ceil(Array.from(line).length / approximateCharactersPerLine));
+    return lineCount + Math.max(1, Math.ceil(graphemeClusters(line).length / approximateCharactersPerLine));
   }, 0);
 }
 
@@ -40,7 +43,9 @@ function countApproximateLines(text: string, approximateCharactersPerLine: numbe
 // when nothing is hidden.
 export function collapseToPreview(text: string, config: TruncationConfig): string {
   const normalized = text.replace(/\r\n?/g, '\n');
-  const chars = Array.from(normalized);
+  // Grapheme clusters, not code points: a cut between the halves of a flag or
+  // inside a ZWJ sequence would leave a dangling half-emoji before the "…".
+  const chars = graphemeClusters(normalized);
 
   let lines = 0;
   let column = 0;
@@ -55,19 +60,26 @@ export function collapseToPreview(text: string, config: TruncationConfig): strin
     if (chars[i] === '\n') {
       lines += 1;
       column = 0;
+
+      if (lines >= config.visibleLines) {
+        // Keep the newline so the cut-on-newline handling below applies.
+        cut = i + 1;
+        break;
+      }
     } else {
       column += 1;
 
       if (column > config.approximateCharactersPerLine) {
-        // This character wrapped onto a new visual line.
+        // This character wrapped onto a new visual line; when that line is the
+        // first hidden one, the character itself is hidden too — cut before it.
         lines += 1;
         column = 1;
-      }
-    }
 
-    if (lines >= config.visibleLines) {
-      cut = i + 1;
-      break;
+        if (lines >= config.visibleLines) {
+          cut = i;
+          break;
+        }
+      }
     }
   }
 
@@ -87,4 +99,17 @@ export function collapseToPreview(text: string, config: TruncationConfig): strin
   }
 
   return `${slice}…`;
+}
+
+const graphemeSegmenter =
+  typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
+    ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+    : null;
+
+function graphemeClusters(text: string): string[] {
+  if (!graphemeSegmenter) {
+    return Array.from(text);
+  }
+
+  return Array.from(graphemeSegmenter.segment(text), (segment) => segment.segment);
 }

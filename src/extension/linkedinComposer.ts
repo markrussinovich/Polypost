@@ -69,11 +69,18 @@ export function findNativeComposerDialogs(root: ParentNode = document): HTMLElem
   });
 }
 
+// Only ever searches inside the share-composer dialog: LinkedIn labels its
+// comment-submit buttons exactly "Post" too, so a page-wide fallback could
+// publish the text as a comment on a random feed item if dialog detection
+// ever broke. No dialog means no Post button — the caller must abort.
 export function findLinkedInPostButton(root: ParentNode = document): HTMLElement | null {
   const dialog = findNativeComposerDialog(root);
-  const controls = dialog ? getButtonLikeControls(dialog) : getButtonLikeControls(root);
 
-  return controls.find((control) => {
+  if (!dialog) {
+    return null;
+  }
+
+  return getButtonLikeControls(dialog).find((control) => {
     return !control.closest(EXTENSION_ROOT_SELECTOR) && !isControlDisabled(control) && isPostActionControl(control);
   }) ?? null;
 }
@@ -175,13 +182,45 @@ export function closeNativeLinkedInComposer(root: ParentNode = document): boolea
   return clicked;
 }
 
+// Auto-clicked dialogs must belong to the share-composer flow: an unrelated
+// dialog can carry the same button labels (Delete post?, Delete comment?),
+// and silently confirming one would destroy user data. A dialog qualifies
+// when it carries LinkedIn's share-* / media editor class markers (on itself
+// or a descendant).
+function hasComposerFlowMarker(dialog: HTMLElement): boolean {
+  if (dialog.className.includes('share-') || dialog.className.includes('media-editor')) {
+    return true;
+  }
+
+  return queryAllDeep('[class*="share-"], [class*="media-editor"]', dialog).length > 0;
+}
+
+// Only a confirmation about discarding a share-composer post/draft may be
+// auto-dismissed. Generic destructive prompts (Delete post? on a feed item,
+// Discard changes? on a profile edit) must be left for the user.
+function isComposerDiscardDialog(dialog: HTMLElement): boolean {
+  if (dialog.closest(EXTENSION_ROOT_SELECTOR)) {
+    return false;
+  }
+
+  const text = (dialog.textContent ?? '').toLowerCase();
+
+  if (!text.includes('discard')) {
+    return false;
+  }
+
+  return text.includes('post') || text.includes('draft') || hasComposerFlowMarker(dialog);
+}
+
 export function dismissNativeComposerDiscardConfirmation(root: ParentNode = document): boolean {
   const controls = getDialogs(root)
-    .filter((dialog) => !dialog.closest(EXTENSION_ROOT_SELECTOR))
+    .filter(isComposerDiscardDialog)
     .flatMap((dialog) => getButtonLikeControls(dialog));
+  // Exact-label matches only: never auto-click yes/ok/delete, which are the
+  // labels unrelated destructive confirmations use.
   const discardControl = controls.find((control) => {
     const label = getControlLabel(control);
-    return /^(discard|leave|delete|yes|ok)$/.test(label) || label.includes('discard post') || label.includes('discard draft');
+    return /^(discard|leave)$/.test(label) || label.includes('discard post') || label.includes('discard draft');
   });
 
   if (!discardControl) {
@@ -293,6 +332,13 @@ export function dropFilesOnLinkedInComposer(files: File[], root: ParentNode = do
 export function findLinkedInMediaNextButton(root: ParentNode = document): HTMLElement | null {
   const dialogs = queryAllDeep<HTMLElement>('[role="dialog"]', root).filter((dialog) => {
     if (dialog.closest(EXTENSION_ROOT_SELECTOR) || dialog.className.includes('vjs-')) {
+      return false;
+    }
+
+    // Only the share flow's own media editor may be advanced. Clicking Next
+    // or Done in an arbitrary dialog could walk the user through an
+    // unrelated wizard while the bridge polls for up to a minute.
+    if (!hasComposerFlowMarker(dialog)) {
       return false;
     }
 
@@ -429,17 +475,16 @@ export function findMentionTypeaheadOption(name: string, root: ParentNode = docu
     return rect.width > 0 && rect.height > 0;
   });
 
-  const optionName = (option: HTMLElement) => {
-    const hit = option.querySelector<HTMLElement>(MENTION_TYPEAHEAD_HIT_NAME_SELECTOR);
-    return normalizeMentionName(hit?.textContent ?? '');
-  };
-
   // Only an exact (case/whitespace-insensitive) name match is clicked: a wrong
-  // mention is worse than the name degrading to plain text.
-  return options.find((option) => optionName(option) === target)
-    ?? options.find((option) => !option.querySelector(MENTION_TYPEAHEAD_HIT_NAME_SELECTOR)
-      && normalizeMentionName(option.textContent ?? '').startsWith(target))
-    ?? null;
+  // mention is worse than the name degrading to plain text. Options without
+  // LinkedIn's hit-text markup compare their entire text, which must still
+  // equal the name exactly - never a prefix match, since an option whose
+  // name-plus-headline merely starts with the target is one markup change
+  // away from silently mentioning the wrong person.
+  return options.find((option) => {
+    const hit = option.querySelector<HTMLElement>(MENTION_TYPEAHEAD_HIT_NAME_SELECTOR);
+    return normalizeMentionName((hit ?? option).textContent ?? '') === target;
+  }) ?? null;
 }
 
 // Finds the mention entity LinkedIn inserted for the given display name.
@@ -507,9 +552,12 @@ export async function setLinkedInComposerSegments(
     composer.textContent = '';
   }
 
-  result.inserted = true;
-
   for (const segment of segments) {
+    // The insert commands act on the global selection and the bridge spans
+    // seconds; re-focus the composer before every segment so a stray focus
+    // change cannot route the segment into another editable.
+    composer.focus();
+
     if (segment.kind === 'mention') {
       result.mentionsRequested += 1;
 
@@ -525,9 +573,49 @@ export async function setLinkedInComposerSegments(
     }
   }
 
+  // Only report success once every segment has actually been written; an
+  // earlier flag would let a caller click Post on a half-inserted draft.
+  result.inserted = true;
+
   composer.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, composed: true }));
   composer.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
   return result;
+}
+
+// Verifies the composer's rendered text covers every plain-text segment of the
+// draft, in order. Whitespace is stripped before comparing because LinkedIn
+// rewrites newlines into paragraphs (dropping them from textContent) and can
+// render non-breaking spaces. Mention segments are skipped: LinkedIn rewrites
+// them into display names whose exact text cannot be asserted.
+export function composerTextCoversSegments(composer: HTMLElement, segments: ComposerSegment[]): boolean {
+  const haystack = stripAllWhitespace(composer.textContent ?? '');
+  let searchFrom = 0;
+
+  for (const segment of segments) {
+    if (segment.kind !== 'text') {
+      continue;
+    }
+
+    const needle = stripAllWhitespace(segment.text);
+
+    if (!needle) {
+      continue;
+    }
+
+    const index = haystack.indexOf(needle, searchFrom);
+
+    if (index === -1) {
+      return false;
+    }
+
+    searchFrom = index + needle.length;
+  }
+
+  return true;
+}
+
+function stripAllWhitespace(value: string): string {
+  return value.replace(/\s+/g, '');
 }
 
 function typeCharacterIntoComposer(composer: HTMLElement, char: string): boolean {

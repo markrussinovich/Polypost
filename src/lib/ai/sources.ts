@@ -96,7 +96,10 @@ export function buildSourcesBlock(sources: Source[]): string | null {
     const remaining = MAX_TOTAL_SOURCE_CHARS - total;
     const limit = Math.min(MAX_SOURCE_CHARS, remaining);
     const truncated = source.text.length > limit;
-    const body = truncated ? `${source.text.slice(0, limit)}\n…[truncated]` : source.text;
+    const raw = truncated ? `${source.text.slice(0, limit)}\n…[truncated]` : source.text;
+    // Source text is untrusted; a document must not be able to forge the
+    // "--- title ---" delimiter and smuggle its own section into the prompt.
+    const body = raw.replace(/^([ \t]*)-{3,}/gm, '$1—');
     total += body.length;
 
     const label = source.url ? `${source.title} (${source.url})` : source.title;

@@ -92,6 +92,14 @@ export function PlatformCard({
     [imagePreviewAttachment, render.text, spec.linkPreview],
   );
 
+  // The pane editor's identity for this editing session. A non-forked pane
+  // reseeds (remounts) when the master changes, but the first keystroke in it
+  // forks the platform — and that transition must NOT change the key, or the
+  // editor remounts mid-word and drops focus, the caret, and IME composition.
+  const paneKeyRef = useRef<string | null>(null);
+  const paneKey = isForked ? paneKeyRef.current ?? `${spec.id}:fork` : `${spec.id}:${masterVersion}`;
+  paneKeyRef.current = isEditing ? paneKey : null;
+
   const [copyFlash, setCopyFlash] = useState<CopyFlash>('idle');
   const [imageCopyFlash, setImageCopyFlash] = useState<CopyFlash>('idle');
   const flashTimer = useRef<number | null>(null);
@@ -217,7 +225,7 @@ export function PlatformCard({
           <PaneEditor
             // Forked panes never remount on master edits; non-forked panes
             // reseed from the updated master via the version key.
-            key={isForked ? `${spec.id}:fork` : `${spec.id}:${masterVersion}`}
+            key={paneKey}
             initialContent={document}
             ariaLabel={`${spec.label} post editor`}
             onChange={onPaneChange}

@@ -21,7 +21,7 @@ import { docToMarkdown, docToPlainText } from './lib/ai/docText';
 import { buildSourcesBlock, loadSources, saveSources, type Source } from './lib/ai/sources';
 import { markdownToTipTap } from './lib/markdownToTipTap';
 import { fetchLinkPreview, lastUrlInText, shouldRefreshLinkPreview } from './lib/linkPreview';
-import { revokeAttachment, type Attachment, type LinkPreview } from './lib/media';
+import { restoreDraftAttachments, revokeAttachment, serializeAttachmentsForDraft, type Attachment, type LinkPreview } from './lib/media';
 import { clearActiveAttachment, loadActiveAttachment, putActiveAttachment } from './lib/attachmentStore';
 import { generateFit } from './lib/ai/fit';
 import { generateText } from './lib/ai/llmClient';
@@ -57,6 +57,14 @@ const AUTOFIT_IDLE_MS = 3000;
 // Start blank rather than with sample content; the editor shows its placeholder.
 const EMPTY_DOCUMENT: EditorNode = { type: 'doc', content: [{ type: 'paragraph' }] };
 
+// Destructive actions that replace or discard the current draft ask first via
+// an integrated dialog (never a browser confirm popup).
+type ConfirmAction =
+  | { kind: 'resync'; id: PlatformId }
+  | { kind: 'reset' }
+  | { kind: 'replace'; document: EditorNode }
+  | { kind: 'restore'; draft: DraftSnapshot };
+
 function App() {
   const [initialLoad] = useState(loadWorkspace);
   const [workspace, setWorkspace] = useState<Workspace>(() => ({
@@ -81,7 +89,7 @@ function App() {
   // Collapse the editor column to give the preview rail the full width (2 columns).
   // Only offered when more than 2 platforms are enabled.
   const [editorCollapsed, setEditorCollapsed] = useState(false);
-  const [resyncTarget, setResyncTarget] = useState<PlatformId | null>(null);
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [aiVersions, setAiVersions] = useState<Map<PlatformId, EditorNode>>(() => new Map());
   const [generating, setGenerating] = useState<Set<PlatformId>>(() => new Set());
   const [aiError, setAiError] = useState<string | null>(null);
@@ -100,7 +108,21 @@ function App() {
   useEffect(() => {
     aiVersionsRef.current = aiVersions;
   }, [aiVersions]);
+  // Latest workspace for async completions: AI results are applied only if the
+  // content they were generated from is still what is on screen.
+  const workspaceRef = useRef(workspace);
+  useEffect(() => {
+    workspaceRef.current = workspace;
+  }, [workspace]);
   const fitAbortRef = useRef<AbortController | null>(null);
+  // An explicit sparkle-click fit in flight. The idle auto-adapt pass must not
+  // abort it (the user asked for it) — it works around it instead.
+  const manualFitRef = useRef<{ id: PlatformId; controller: AbortController } | null>(null);
+  const authorAbortRef = useRef<AbortController | null>(null);
+  // What each platform's current AI version was generated from (master +
+  // style), so an idle pause after an unrelated change (a fork edit, a chip
+  // toggle) doesn't re-generate cards whose input hasn't changed.
+  const adaptedKeyRef = useRef<Map<PlatformId, string>>(new Map());
   // Link preview states whose fetch has already been kicked off, so failed or
   // low-value metadata can retry once without looping forever.
   const startedPreviewKeys = useRef<Set<string>>(new Set());
@@ -278,6 +300,10 @@ function App() {
     const controller = new AbortController();
     fitAbortRef.current = controller;
 
+    // A manual fit the user explicitly requested keeps running; this pass just
+    // leaves its platform (and its badge) alone.
+    const manualId = manualFitRef.current?.id ?? null;
+
     const selection = selectAutoAdapt(config, workspace.master, workspace.enabledPlatforms, workspace.overrides, aiVersionsRef.current);
 
     if (selection.toClear.length > 0) {
@@ -288,17 +314,29 @@ function App() {
       });
     }
 
-    if (selection.toFit.length === 0) {
+    const masterText = docToPlainText(workspace.master);
+    const masterMarkdown = docToMarkdown(workspace.master);
+    const adaptKey = makeAdaptKey(config.stylePrompt, masterMarkdown);
+    const toFit = selection.toFit.filter(
+      (id) => id !== manualId && !(adaptedKeyRef.current.get(id) === adaptKey && aiVersionsRef.current.has(id)),
+    );
+
+    if (toFit.length === 0) {
+      // The abort above orphaned any badges the superseded run was showing
+      // (except a live manual fit's, which still owns its own).
+      setGenerating((prev) => {
+        const next = new Set(manualId && prev.has(manualId) ? [manualId] : []);
+        return next.size === prev.size ? prev : next;
+      });
       return;
     }
 
-    const masterText = docToPlainText(workspace.master);
-    const masterMarkdown = docToMarkdown(workspace.master);
-    setGenerating((prev) => new Set([...prev, ...selection.toFit]));
+    // Replace rather than merge: aborting the previous run orphaned its badges.
+    setGenerating(new Set(manualId ? [manualId, ...toFit] : toFit));
     setAiError(null);
 
     await Promise.all(
-      selection.toFit.map(async (id) => {
+      toFit.map(async (id) => {
         const spec = PLATFORMS_BY_ID[id];
 
         try {
@@ -309,6 +347,7 @@ function App() {
           const result = await generateFit({ config, spec, masterText: spec.allowUnicodeStyling ? masterMarkdown : masterText, style: config.stylePrompt, signal: controller.signal });
 
           if (!controller.signal.aborted) {
+            adaptedKeyRef.current.set(id, adaptKey);
             setAiVersions((prev) => new Map(prev).set(id, result.doc));
           }
         } catch (error) {
@@ -316,11 +355,14 @@ function App() {
             setAiError(`${spec.label}: ${error instanceof Error ? error.message : 'AI request failed.'}`);
           }
         } finally {
-          setGenerating((prev) => {
-            const next = new Set(prev);
-            next.delete(id);
-            return next;
-          });
+          // An aborted run's badges belong to whichever run superseded it.
+          if (!controller.signal.aborted) {
+            setGenerating((prev) => {
+              const next = new Set(prev);
+              next.delete(id);
+              return next;
+            });
+          }
         }
       }),
     );
@@ -333,25 +375,60 @@ function App() {
       return;
     }
 
-    setGenerating((prev) => new Set(prev).add(id));
+    // A user-requested fit supersedes whatever was in flight — the idle
+    // auto-adapt pass and any earlier manual fit — and takes over the badges.
+    fitAbortRef.current?.abort();
+    manualFitRef.current?.controller.abort();
+    const controller = new AbortController();
+    manualFitRef.current = { id, controller };
+
+    const masterAtRequest = workspace.master;
+    const overrideAtRequest = workspace.overrides[id];
+
+    setGenerating(new Set([id]));
     setAiError(null);
 
     try {
-      const masterText = spec.allowUnicodeStyling ? docToMarkdown(workspace.master) : docToPlainText(workspace.master);
-      const result = await generateFit({ config: llmConfig, spec, masterText, style: llmConfig.stylePrompt });
+      const masterMarkdown = docToMarkdown(workspace.master);
+      const masterText = spec.allowUnicodeStyling ? masterMarkdown : docToPlainText(workspace.master);
+      const result = await generateFit({ config: llmConfig, spec, masterText, style: llmConfig.stylePrompt, signal: controller.signal });
+
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      // Drop the result if the user edited the master or this platform's pane
+      // while the request ran — applying it would discard their newer work.
+      const current = workspaceRef.current;
+
+      if (current.master !== masterAtRequest || current.overrides[id] !== overrideAtRequest) {
+        return;
+      }
+
+      // Record what this version was generated from so the idle pass doesn't
+      // immediately regenerate (and visibly replace) the accepted result.
+      adaptedKeyRef.current.set(id, makeAdaptKey(llmConfig.stylePrompt, masterMarkdown));
       // The sparkle only appears on a forked (edited) card, so applying the AI
       // version means discarding the manual edit: drop the override so the AI
       // version (which would otherwise be hidden behind it) becomes visible.
       setWorkspace((prev) => resyncPlatform(prev, id));
       setAiVersions((prev) => new Map(prev).set(id, result.doc));
     } catch (error) {
-      setAiError(`${spec.label}: ${error instanceof Error ? error.message : 'AI request failed.'}`);
+      if (!controller.signal.aborted) {
+        setAiError(`${spec.label}: ${error instanceof Error ? error.message : 'AI request failed.'}`);
+      }
     } finally {
-      setGenerating((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
+      if (manualFitRef.current?.controller === controller) {
+        manualFitRef.current = null;
+      }
+
+      if (!controller.signal.aborted) {
+        setGenerating((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }
     }
   }
 
@@ -360,21 +437,44 @@ function App() {
       return;
     }
 
+    authorAbortRef.current?.abort();
+    const controller = new AbortController();
+    authorAbortRef.current = controller;
+
+    const masterAtRequest = workspace.master;
+
     setAuthorBusy(true);
     setAuthorError(null);
 
     try {
       const { system, prompt } = buildAuthorRequest(instruction, docToMarkdown(workspace.master), llmConfig.stylePrompt, buildSourcesBlock(sources));
-      const text = await generateText({ config: llmConfig, system, prompt });
+      const text = await generateText({ config: llmConfig, system, prompt, signal: controller.signal });
+
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      // The reply replaces the whole master; if the user typed while the
+      // request ran, keep their words instead of silently destroying them.
+      if (workspaceRef.current.master !== masterAtRequest) {
+        setAuthorError('The draft changed while the AI was writing, so its result was not applied. Submit again to rerun on the latest draft.');
+        return;
+      }
+
       const doc = markdownToTipTap(text);
       setWorkspace((prev) => applyMasterEdit(prev, doc));
       setAiVersions(new Map()); // master replaced — drop stale AI versions
+      adaptedKeyRef.current.clear();
       setEditorVersion((version) => version + 1);
       setMasterVersion((version) => version + 1);
     } catch (error) {
-      setAuthorError(error instanceof Error ? error.message : 'AI request failed.');
+      if (!controller.signal.aborted) {
+        setAuthorError(error instanceof Error ? error.message : 'AI request failed.');
+      }
     } finally {
-      setAuthorBusy(false);
+      if (authorAbortRef.current === controller) {
+        setAuthorBusy(false);
+      }
     }
   }
 
@@ -422,8 +522,20 @@ function App() {
   }
 
   function handleReplaceDocument(nextMaster: EditorNode) {
+    // Importing or dropping a file replaces the whole draft; ask first when
+    // there is a draft to lose (a stray drop must not wipe hours of work).
+    if (docToPlainText(workspace.master).trim()) {
+      setConfirmAction({ kind: 'replace', document: nextMaster });
+      return;
+    }
+
+    performReplaceDocument(nextMaster);
+  }
+
+  function performReplaceDocument(nextMaster: EditorNode) {
     setWorkspace((prev) => applyMasterEdit(prev, nextMaster));
     setAiVersions(new Map());
+    adaptedKeyRef.current.clear();
     setEditorVersion((version) => version + 1);
     setStorageNotice(null);
   }
@@ -460,22 +572,24 @@ function App() {
     });
   }
 
-  function handleResync(id: PlatformId) {
-    // Ask via an integrated dialog rather than a browser confirm popup.
-    setResyncTarget(id);
+  // Whether discarding the current workspace would lose anything the user made.
+  function hasUnsavedContent(): boolean {
+    return (
+      Boolean(docToPlainText(workspace.master).trim()) ||
+      Object.keys(workspace.overrides).length > 0 ||
+      sources.length > 0 ||
+      imageAttachment !== null
+    );
   }
 
-  function confirmResync() {
-    const id = resyncTarget;
+  function handleResync(id: PlatformId) {
+    setConfirmAction({ kind: 'resync', id });
+  }
 
-    if (!id) {
-      return;
-    }
-
+  function performResync(id: PlatformId) {
     setWorkspace((prev) => resyncPlatform(prev, id));
     clearAiVersion(id);
     setActivePaneEditor((current) => (current === id ? null : current));
-    setResyncTarget(null);
 
     // If the freshly re-synced master text overflows this platform, adapt it now
     // (showing the "Adapting…" notice) instead of waiting for the idle autofit pass.
@@ -498,8 +612,18 @@ function App() {
   }
 
   function handleReset() {
+    if (!hasUnsavedContent()) {
+      performReset();
+      return;
+    }
+
+    setConfirmAction({ kind: 'reset' });
+  }
+
+  function performReset() {
     setWorkspace((prev) => ({ ...prev, master: EMPTY_DOCUMENT, overrides: {} }));
     setAiVersions(new Map());
+    adaptedKeyRef.current.clear();
     setActivePaneEditor(null);
     setSources([]);
     handleSetImageAttachment(null);
@@ -512,36 +636,82 @@ function App() {
 
   async function handleSaveDraftSnapshot(title: string) {
     const characterCount = renderForPlatform(workspace.master, PLATFORMS_BY_ID.linkedin).summary.count;
-    const result = saveDraftSnapshot(workspace.master, title, characterCount, {
+    const extras = {
       overrides: workspace.overrides,
       aiVersions: Object.fromEntries(aiVersions) as Partial<Record<PlatformId, EditorNode>>,
       enabledPlatforms: workspace.enabledPlatforms,
       sources,
+    };
+    const attachments = imageAttachment ? await serializeAttachmentsForDraft([imageAttachment]) : [];
+    let result = saveDraftSnapshot(workspace.master, title, characterCount, {
+      ...extras,
+      attachments: attachments.length ? attachments : undefined,
     });
+    let notice: string | null = null;
+
+    // A large image can push the snapshot past the localStorage quota; a draft
+    // without its picture beats no draft at all.
+    if (!result.ok && attachments.length) {
+      result = saveDraftSnapshot(workspace.master, title, characterCount, extras);
+
+      if (result.ok) {
+        notice = 'Draft saved, but the attached image was too large to save with it.';
+      }
+    }
 
     if (result.ok) {
       setDraftHistory(loadDraftHistory());
-      setStorageNotice(null);
+      setStorageNotice(notice);
     } else {
       setStorageNotice(result.message);
     }
   }
 
   function handleRestoreDraftSnapshot(draft: DraftSnapshot) {
+    if (!hasUnsavedContent()) {
+      performRestoreDraftSnapshot(draft);
+      return;
+    }
+
+    setConfirmAction({ kind: 'restore', draft });
+  }
+
+  function performRestoreDraftSnapshot(draft: DraftSnapshot) {
     startedPreviewKeys.current.clear();
     setLinkPreviews(new Map());
     setDebouncedPlatformPreviewUrls([]);
-    handleSetImageAttachment(null);
+    handleSetImageAttachment(restoreDraftAttachments(draft.attachments)[0] ?? null);
     setSources(draft.sources ?? []);
     setWorkspace((prev) => ({
       master: draft.document,
       overrides: draft.overrides ?? {},
       enabledPlatforms: draft.enabledPlatforms ?? prev.enabledPlatforms,
     }));
+    // The restored AI versions were generated from the snapshot's inputs, not
+    // the current ones — drop the cache keys or the idle pass would wrongly
+    // skip regenerating them under the current style/master.
+    adaptedKeyRef.current.clear();
     setAiVersions(new Map(Object.entries(draft.aiVersions ?? {}) as [PlatformId, EditorNode][]));
     setActivePaneEditor(null);
     setEditorVersion((version) => version + 1);
     setStorageNotice(null);
+  }
+
+  function runConfirmAction(action: ConfirmAction) {
+    switch (action.kind) {
+      case 'resync':
+        performResync(action.id);
+        break;
+      case 'reset':
+        performReset();
+        break;
+      case 'replace':
+        performReplaceDocument(action.document);
+        break;
+      case 'restore':
+        performRestoreDraftSnapshot(action.draft);
+        break;
+    }
   }
 
   function handleDeleteDraftSnapshot(id: string) {
@@ -556,7 +726,7 @@ function App() {
   }
 
   return (
-    <ErrorBoundary onReset={handleReset}>
+    <ErrorBoundary onReset={performReset}>
       <main className="app-shell">
         <header className="app-header" aria-labelledby="app-title">
           <div className="brand-lockup" aria-hidden="true">
@@ -674,13 +844,14 @@ function App() {
       </main>
       {showSettings ? <LlmSettings config={llmConfig} onSave={handleSaveSettings} onClose={() => setShowSettings(false)} /> : null}
       {showHelp ? <HelpModal onClose={() => setShowHelp(false)} /> : null}
-      {resyncTarget ? (
+      {confirmAction ? (
         <ConfirmDialog
-          title={`Re-sync ${PLATFORMS_BY_ID[resyncTarget]?.label ?? 'platform'}?`}
-          message="This discards the customized version for this platform and follows the master draft again."
-          confirmLabel="Re-sync"
-          onConfirm={confirmResync}
-          onCancel={() => setResyncTarget(null)}
+          {...describeConfirmAction(confirmAction)}
+          onConfirm={() => {
+            setConfirmAction(null);
+            runConfirmAction(confirmAction);
+          }}
+          onCancel={() => setConfirmAction(null)}
         />
       ) : null}
       <UpdatePrompt />
@@ -688,8 +859,42 @@ function App() {
   );
 }
 
+function describeConfirmAction(action: ConfirmAction): { title: string; message: string; confirmLabel: string } {
+  switch (action.kind) {
+    case 'resync':
+      return {
+        title: `Re-sync ${PLATFORMS_BY_ID[action.id]?.label ?? 'platform'}?`,
+        message: 'This discards the customized version for this platform and follows the master draft again.',
+        confirmLabel: 'Re-sync',
+      };
+    case 'reset':
+      return {
+        title: 'Reset draft?',
+        message: 'This clears the draft, every customized platform version, AI sources, and the attached image. It cannot be undone.',
+        confirmLabel: 'Reset',
+      };
+    case 'replace':
+      return {
+        title: 'Replace draft with imported file?',
+        message: 'The imported document replaces your current draft and customized platform versions. It cannot be undone.',
+        confirmLabel: 'Replace',
+      };
+    case 'restore':
+      return {
+        title: `Restore "${action.draft.title}"?`,
+        message: 'Restoring replaces your current draft, customized platform versions, sources, and attached image. Save the current draft first if you want to keep it.',
+        confirmLabel: 'Restore',
+      };
+  }
+}
+
 function shouldAutoAdapt(config: LlmConfig): boolean {
   return Boolean(config.stylePrompt.trim()) || config.autoFit;
+}
+
+// Cache key for adaptedKeyRef: the inputs an AI platform version derives from.
+function makeAdaptKey(stylePrompt: string, masterMarkdown: string): string {
+  return JSON.stringify([stylePrompt, masterMarkdown]);
 }
 
 function selectAutoAdapt(
