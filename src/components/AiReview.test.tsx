@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AiProposal } from '../lib/ai/review';
@@ -8,134 +8,92 @@ import { AiReview } from './AiReview';
 
 afterEach(cleanup);
 
-const before = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Original words' }] }] };
+const doc = (text: string): EditorNode => ({
+  type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+});
 const proposal: AiProposal = {
-  before, master: before,
-  after: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Suggestion' }] }] },
-  platform: 'x', truncated: true,
+  before: doc('My old post.'), master: doc('My old post.'), after: doc('My new post!'),
+  platform: 'x', truncated: false,
 };
+const callbacks = () => ({
+  onAccept: vi.fn(async (_document?: EditorNode) => {}),
+  onReject: vi.fn(),
+});
 
-describe('AI review', () => {
-  it('exposes mechanical truncation and waits for acceptance before invoking the apply callback', async () => {
-    const onAccept = vi.fn(async () => {});
-    const onReject = vi.fn();
-    const onRegenerate = vi.fn();
-    render(<AiReview proposal={proposal} busy={false} onAccept={onAccept} onReject={onReject} onRegenerate={onRegenerate} />);
-    expect(screen.getByRole('alert')).toHaveTextContent('mechanically cut');
-    expect(screen.getByText('Original words')).toBeInTheDocument();
-    expect(screen.getByText('Suggestion')).toBeInTheDocument();
-    expect(screen.getByLabelText('Removed text').tagName).toBe('DEL');
-    expect(screen.getByLabelText('Added text').tagName).toBe('INS');
-    expect(onAccept).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
-    expect(onReject).toHaveBeenCalledOnce();
-    fireEvent.click(screen.getByRole('button', { name: 'Regenerate' }));
-    expect(onRegenerate).toHaveBeenCalledOnce();
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Accept changes' })); });
-    expect(onAccept).toHaveBeenCalledOnce();
+describe('inline AI review', () => {
+  it('shows a separate accept and reject control on every change without instructions or final approval', () => {
+    render(<AiReview proposal={proposal} busy={false} {...callbacks()} />);
+    expect(screen.getAllByRole('button', { name: /^Accept change / })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /^Reject change / })).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'Accept changes' })).toBeNull();
+    expect(screen.queryByText(/Tracked changes:/)).toBeNull();
+    expect(screen.queryByText(/Your current text/)).toBeNull();
   });
 
-  it('renders the initial draft without added or removed markup', () => {
-    render(<AiReview
-      proposal={{ ...proposal, before: { type: 'doc', content: [{ type: 'paragraph' }] }, truncated: false }}
-      busy={false} onAccept={vi.fn()} onReject={vi.fn()} onRegenerate={vi.fn()}
-    />);
+  it('applies mixed choices automatically after the last decision', async () => {
+    const handlers = callbacks();
+    render(<AiReview proposal={proposal} busy={false} {...handlers} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Reject change 1' }));
+    expect(handlers.onAccept).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Accept change 1' })); });
+    expect(docToMarkdown(handlers.onAccept.mock.calls[0][0])).toBe('My old post!');
+  });
+
+  it('accepts all pending changes but preserves prior rejections', async () => {
+    const handlers = callbacks();
+    render(<AiReview proposal={proposal} busy={false} {...handlers} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Reject change 1' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Accept All' })); });
+    expect(docToMarkdown(handlers.onAccept.mock.calls[0][0])).toBe('My old post!');
+  });
+
+  it('rejects all without applying a changed draft', async () => {
+    const handlers = callbacks();
+    render(<AiReview proposal={proposal} busy={false} {...handlers} />);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reject All' })); });
+    expect(handlers.onReject).toHaveBeenCalledOnce();
+    expect(handlers.onAccept).not.toHaveBeenCalled();
+  });
+
+  it('starts the initial draft unmarked and applies it automatically', async () => {
+    const handlers = callbacks();
+    render(<AiReview proposal={{ ...proposal, before: doc('') }} busy={false} {...handlers} />);
     const changes = screen.getByRole('region', { name: 'Tracked changes for X' });
-    expect(changes).toHaveTextContent('Suggestion');
     expect(changes.querySelector('ins, del')).toBeNull();
-    expect(screen.getByText('Initial draft: all text is unmarked.')).toBeInTheDocument();
+    expect(changes).toHaveTextContent('My new post!');
+    await act(async () => {});
+    expect(handlers.onAccept).toHaveBeenCalledWith(proposal.after);
   });
 
-  it('shows unchanged passages once, with changes inline', () => {
-    const doc = (text: string) => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
-    render(<AiReview
-      proposal={{ ...proposal, before: doc('My old post'), after: doc('My new post'), truncated: false }}
-      busy={false} onAccept={vi.fn()} onReject={vi.fn()} onRegenerate={vi.fn()}
-    />);
-    const changes = screen.getByRole('region', { name: 'Tracked changes for X' });
-    expect(within(changes).getByLabelText('Removed text')).toHaveTextContent('old');
-    expect(within(changes).getByLabelText('Added text')).toHaveTextContent('new');
-    expect(changes.querySelectorAll('span:not([role])')).toHaveLength(2);
-    expect(screen.queryByText('Before')).toBeNull();
-    expect(screen.queryByText('Suggested')).toBeNull();
+  it('allows editing a suggestion directly before accepting a change', async () => {
+    const handlers = callbacks();
+    render(<AiReview proposal={proposal} busy={false} {...handlers} />);
+    const addition = screen.getAllByLabelText('Added text', { selector: 'ins' })[0];
+    const editable = addition.querySelector('[contenteditable]')!;
+    editable.textContent = 'better';
+    fireEvent.input(editable);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Accept All' })); });
+    expect(docToMarkdown(handlers.onAccept.mock.calls[0][0])).toBe('My better post!');
   });
 
-  it('accepts and rejects individual replacements, then applies only the chosen edits', async () => {
-    const doc = (text: string): EditorNode => ({
-      type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
-    });
-    const onAccept = vi.fn(async (_document?: EditorNode) => {});
-    render(<AiReview
-      proposal={{ ...proposal, before: doc('My old post.'), after: doc('My new post!'), truncated: false }}
-      busy={false} onAccept={onAccept} onReject={vi.fn()} onRegenerate={vi.fn()}
-    />);
-    expect(screen.getByText('Change 1 of 2')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Next change' }));
-    expect(screen.getByText('Change 2 of 2')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Previous change' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Reject change' }));
-    expect(screen.queryByText('new')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Accept change' }));
-    expect(screen.getByText('All changes reviewed')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Added text')).toBeNull();
-    expect(screen.queryByLabelText('Removed text')).toBeNull();
-    expect(onAccept).not.toHaveBeenCalled();
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Accept changes' })); });
-    expect(docToMarkdown(onAccept.mock.calls[0][0])).toBe('My old post!');
+  it('warns when AI was mechanically shortened', () => {
+    render(<AiReview proposal={{ ...proposal, truncated: true }} busy={false} {...callbacks()} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('cut to fit');
   });
 
-  it('bulk decisions resolve remaining changes without overwriting previously reviewed choices', async () => {
-    const doc = (text: string): EditorNode => ({
-      type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
-    });
-    const onAccept = vi.fn(async (_document?: EditorNode) => {});
-    const props = {
-      proposal: { ...proposal, before: doc('My old post.'), after: doc('My new post!'), truncated: false },
-      busy: false, onAccept, onReject: vi.fn(), onRegenerate: vi.fn(),
-    };
-    const { unmount } = render(<AiReview {...props} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Reject change' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Accept All' }));
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Accept changes' })); });
-    expect(docToMarkdown(onAccept.mock.calls[0][0])).toBe('My old post!');
-    unmount();
-    render(<AiReview {...props} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Reject All' }));
-    expect(screen.getByRole('region', { name: 'Tracked changes for X' })).toHaveTextContent('My old post.');
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Accept changes' })); });
-    expect(docToMarkdown(onAccept.mock.calls[1][0])).toBe('My old post.');
+  it('keeps edits to unchanged text when rejecting AI changes', async () => {
+    const handlers = callbacks();
+    render(<AiReview proposal={proposal} busy={false} {...handlers} />);
+    const editable = screen.getAllByRole('textbox')[0];
+    editable.textContent = 'Your ';
+    fireEvent.input(editable);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reject All' })); });
+    expect(docToMarkdown(handlers.onAccept.mock.calls[0][0])).toBe('Your old post.');
   });
 
-  it('clears review decisions when a regenerated suggestion arrives', () => {
-    const doc = (text: string): EditorNode => ({
-      type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
-    });
-    const props = {
-      proposal: { ...proposal, before: doc('Old'), after: doc('New'), truncated: false },
-      busy: false, onAccept: vi.fn(), onReject: vi.fn(), onRegenerate: vi.fn(),
-    };
-    const { rerender } = render(<AiReview {...props} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Reject All' }));
-    rerender(<AiReview {...props} proposal={{ ...props.proposal, after: doc('Another suggestion') }} />);
-    expect(screen.getByLabelText('Added text')).toHaveTextContent('Another suggestion');
-    expect(screen.getByRole('button', { name: 'Accept change' })).toBeEnabled();
-  });
-
-  it('preserves formatting and mention tokens when applying mixed review choices', async () => {
-    const doc = (text: string): EditorNode => ({
-      type: 'doc', content: [{ type: 'paragraph', content: [
-        { type: 'text', text: 'Hello', marks: [{ type: 'bold' }] },
-        { type: 'text', text: ` @[Jane Doe] ${text}` },
-      ] }],
-    });
-    const onAccept = vi.fn(async (_document?: EditorNode) => {});
-    render(<AiReview
-      proposal={{ ...proposal, before: doc('old news.'), after: doc('new news!'), truncated: false }}
-      busy={false} onAccept={onAccept} onReject={vi.fn()} onRegenerate={vi.fn()}
-    />);
-    fireEvent.click(screen.getByRole('button', { name: 'Reject change' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Accept All' }));
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Accept changes' })); });
-    expect(docToMarkdown(onAccept.mock.calls[0][0])).toBe('**Hello** @[Jane Doe] old news!');
+  it('disables decisions while generation is running', () => {
+    render(<AiReview proposal={proposal} busy {...callbacks()} />);
+    expect(screen.getByRole('button', { name: 'Accept change 1' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Reject All' })).toBeDisabled();
   });
 });

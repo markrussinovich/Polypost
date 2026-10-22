@@ -425,14 +425,6 @@ h2 {
   overflow-y: hidden;
 }
 
-/* Compact Generate button so it doesn't tower over the input. The extra class
-   raises specificity above .primary-action (same single-class weight otherwise). */
-.ai-assist .ai-assist-submit {
-  min-height: 34px;
-  padding: 0 14px;
-  font-size: 0.82rem;
-}
-
 /* One-click suggested prompts under the input — tinted to match the AI accent. */
 .ai-suggestions {
   display: flex;
@@ -1589,21 +1581,20 @@ h2 {
   margin-bottom: 12px;
 }
 
-.platform-card > .ai-review {
-  margin: 12px;
+.ai-review {
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: var(--surface);
 }
 
 .ai-review-changes {
-  margin: 0 0 12px;
-  padding: 12px;
-  max-height: 320px;
-  overflow: auto;
+  margin: 0;
+  padding: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   font: inherit;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface-alt);
+  background: var(--surface);
 }
 
 .ai-review-changes ins {
@@ -1627,14 +1618,32 @@ h2 {
 }
 
 .ai-review-change {
-  cursor: pointer;
+  border-radius: 2px;
 }
 
-.ai-review-change.is-current,
-.ai-review-change:focus-visible {
-  outline: 2px solid var(--linkedin-blue);
-  outline-offset: 2px;
-  border-radius: 2px;
+.ai-review-change-actions {
+  display: inline-flex;
+  vertical-align: middle;
+  gap: 2px;
+  margin: 0 4px;
+}
+
+.ai-review-changes [contenteditable] {
+  cursor: text;
+  outline-color: var(--linkedin-blue);
+}
+
+.ai-review-change-actions .ai-review-accept {
+  color: var(--success);
+}
+
+.ai-review-change-actions .ai-review-reject {
+  color: var(--danger);
+}
+
+.editor-workspace > .ai-review {
+  padding: 20px;
+  min-height: 240px;
 }
 
 .draft-library-tools button[aria-pressed="true"] {

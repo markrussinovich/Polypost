@@ -220,7 +220,7 @@ export function PlatformCard({
               <RotateCcw aria-hidden="true" size={15} />
             </button>
           ) : null}
-          {isEditing ? (
+          {proposal && !isEditing ? null : isEditing ? (
             <button type="button" className="card-icon-button is-done" title="Done editing" aria-label={`Done editing ${spec.label}`} onClick={onStopEditing}>
               <Check aria-hidden="true" size={15} />
             </button>
@@ -242,8 +242,15 @@ export function PlatformCard({
             ariaLabel={`${spec.label} post editor`}
             onChange={onPaneChange}
           />
+        ) : proposal && onAcceptProposal && onRejectProposal ? (
+          <AiReview
+            proposal={proposal}
+            busy={isGenerating}
+            onAccept={(document) => onAcceptProposal(spec.id, proposal, document)}
+            onReject={() => onRejectProposal(spec.id)}
+          />
         ) : (
-          <p className="platform-card-text">
+          <p className="platform-card-text" onDoubleClick={onStartEditing}>
             {hasText ? (
               <>
                 {renderMentionText(displayText, mentionStrings)}
@@ -260,15 +267,6 @@ export function PlatformCard({
         )}
       </div>
 
-      {!isEditing && proposal && onAcceptProposal && onRejectProposal ? (
-        <AiReview
-          proposal={proposal}
-          busy={isGenerating}
-          onAccept={(document) => onAcceptProposal(spec.id, proposal, document)}
-          onReject={() => onRejectProposal(spec.id)}
-          onRegenerate={onFit}
-        />
-      ) : null}
       {!isEditing && imagePreviewAttachment ? <CardImagePreview image={imagePreviewAttachment} spec={spec} /> : null}
       {!isEditing && !imagePreviewAttachment && previewUrl ? <CardLinkPreview url={previewUrl} preview={linkPreviews.get(previewUrl)} spec={spec} /> : null}
 

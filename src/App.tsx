@@ -1049,9 +1049,8 @@ function App() {
                 busy={authorBusy}
                 onAccept={(document) => acceptProposal('master', proposals.get('master')!, document)}
                 onReject={() => dismissProposal('master')}
-                onRegenerate={() => void handleAuthor(proposals.get('master')?.instruction ?? '')}
               />
-            ) : null}
+            ) : (
             <EditorShell
               key={editorVersion}
               initialContent={workspace.master}
@@ -1059,6 +1058,7 @@ function App() {
               onReplaceDocument={handleReplaceDocument}
               onReset={handleReset}
             />
+            )}
             <ImageAttachmentControl image={imageAttachment} onSetImage={handleSetImageAttachment} />
             <DraftHistoryPanel
               drafts={draftHistory}

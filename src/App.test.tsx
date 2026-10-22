@@ -239,12 +239,13 @@ describe('App URL preview fetching', () => {
     await act(async () => {});
 
     const xCard = screen.getByLabelText('X preview');
-    expect(xCard.querySelector('.platform-card-text')).toHaveTextContent('Original post');
+    expect(xCard.querySelector('.platform-card-text')).toBeNull();
+    expect(within(xCard).getByRole('region', { name: 'Tracked changes for X' })).toHaveTextContent('Original post');
     expect(within(xCard).getByText('Adapted')).toBeInTheDocument();
     await act(async () => { fireEvent.click(within(xCard).getByRole('button', { name: /^(Copy|Copied!)$/ })); });
     expect(copyPlainText).toHaveBeenLastCalledWith('Original post');
 
-    await act(async () => { fireEvent.click(within(xCard).getByRole('button', { name: 'Accept changes' })); });
+    await act(async () => { fireEvent.click(within(xCard).getByRole('button', { name: 'Accept All' })); });
     expect(xCard.querySelector('.platform-card-text')).toHaveTextContent('Adapted');
     await act(async () => { fireEvent.click(within(xCard).getByRole('button', { name: /^(Copy|Copied!)$/ })); });
     expect(copyPlainText).toHaveBeenLastCalledWith('Adapted');
@@ -262,7 +263,7 @@ describe('App URL preview fetching', () => {
     saveAiSettings('Friendly');
     await act(async () => {});
     await act(async () => {
-      fireEvent.click(within(screen.getByLabelText('X preview')).getByRole('button', { name: 'Accept changes' }));
+      fireEvent.click(within(screen.getByLabelText('X preview')).getByRole('button', { name: 'Accept All' }));
     });
     app.unmount();
     vi.mocked(generateFit).mockClear();
@@ -285,9 +286,8 @@ describe('App URL preview fetching', () => {
     saveAiSettings('Friendly');
     await act(async () => {});
     const card = screen.getByLabelText('X preview');
-    fireEvent.click(within(card).getByRole('button', { name: 'Reject change' }));
-    fireEvent.click(within(card).getByRole('button', { name: 'Accept All' }));
-    await act(async () => { fireEvent.click(within(card).getByRole('button', { name: 'Accept changes' })); });
+    fireEvent.click(within(card).getByRole('button', { name: 'Reject change 1' }));
+    await act(async () => { fireEvent.click(within(card).getByRole('button', { name: 'Accept change 1' })); });
     expect(card.querySelector('.platform-card-text')).toHaveTextContent('My old post!');
     expect(library.drafts.some((draft) => draft.aiVersions?.x?.content?.[0]?.content?.[0]?.text === 'My old post!')).toBe(true);
     expect(screen.getByLabelText('Mock post editor')).toHaveValue('My old post.');
@@ -300,10 +300,10 @@ describe('App URL preview fetching', () => {
     await act(async () => {});
     const card = screen.getByLabelText('X preview');
     const calls = vi.mocked(generateFit).mock.calls.length;
-    await act(async () => { fireEvent.click(within(card).getByRole('button', { name: 'Regenerate' })); });
+    await act(async () => { fireEvent.click(within(card).getByRole('button', { name: 'Suggest AI changes for X' })); });
     expect(generateFit).toHaveBeenCalledTimes(calls + 1);
-    fireEvent.click(within(card).getByRole('button', { name: 'Reject' }));
-    expect(within(card).queryByRole('button', { name: 'Accept changes' })).toBeNull();
+    await act(async () => { fireEvent.click(within(card).getByRole('button', { name: 'Reject All' })); });
+    expect(within(card).queryByRole('button', { name: 'Accept All' })).toBeNull();
     await act(async () => { vi.advanceTimersByTime(3000); });
     expect(generateFit).toHaveBeenCalledTimes(calls + 1);
     expect(card.querySelector('.platform-card-text')).toHaveTextContent('Original post');
@@ -315,16 +315,41 @@ describe('App URL preview fetching', () => {
     saveAiSettings();
     await act(async () => {});
     fireEvent.change(screen.getByLabelText('AI instruction'), { target: { value: 'Rewrite it' } });
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Generate' })); });
-    expect(screen.getByLabelText('Mock post editor')).toHaveValue('Original master');
+    expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull();
+    await act(async () => { vi.advanceTimersByTime(3000); });
+    expect(screen.queryByLabelText('Mock post editor')).toBeNull();
     const review = screen.getByRole('region', { name: 'Review AI changes for master draft' });
-    await act(async () => { fireEvent.click(within(review).getByRole('button', { name: 'Regenerate' })); });
-    expect(generateText).toHaveBeenCalledTimes(2);
-    await act(async () => { fireEvent.click(within(review).getByRole('button', { name: 'Accept changes' })); });
+    expect(generateText).toHaveBeenCalledTimes(1);
+    await act(async () => { fireEvent.click(within(review).getByRole('button', { name: 'Accept All' })); });
     expect(screen.getByLabelText('Mock post editor')).toHaveValue('AI-authored post');
     expect(library.drafts.some((draft) => draft.document.content?.[0]?.content?.[0]?.text === 'Original master')).toBe(true);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Undo AI change' })); });
     expect(screen.getByLabelText('Mock post editor')).toHaveValue('Original master');
+  });
+
+  it('automatically puts an initial AI draft into the existing editor without a second draft area', async () => {
+    render(<App />);
+    saveAiSettings();
+    await act(async () => {});
+    fireEvent.change(screen.getByLabelText('AI instruction'), { target: { value: 'Write a launch post' } });
+    await act(async () => { vi.advanceTimersByTime(3000); });
+    expect(screen.getAllByLabelText('Mock post editor')).toHaveLength(1);
+    expect(screen.getByLabelText('Mock post editor')).toHaveValue('AI-authored post');
+    expect(screen.queryByRole('region', { name: 'Review AI changes for master draft' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull();
+  });
+
+  it('automatically adapts over-limit edits after a typing pause', async () => {
+    render(<App />);
+    saveAiSettings();
+    await act(async () => {});
+    vi.mocked(generateFit).mockClear();
+    fireEvent.change(screen.getByLabelText('Mock post editor'), { target: { value: 'x'.repeat(400) } });
+    await act(async () => { vi.advanceTimersByTime(2999); });
+    expect(generateFit).not.toHaveBeenCalled();
+    await act(async () => { vi.advanceTimersByTime(1); });
+    expect(generateFit).toHaveBeenCalledTimes(2);
+    expect(within(screen.getByLabelText('X preview')).getByRole('button', { name: 'Accept change 1' })).toBeInTheDocument();
   });
 
   it('does not apply an outstanding suggestion after the author edits the draft', async () => {
@@ -333,7 +358,7 @@ describe('App URL preview fetching', () => {
     saveAiSettings('Friendly');
     await act(async () => {});
     fireEvent.change(screen.getByLabelText('Mock post editor'), { target: { value: 'Newer manual edit' } });
-    expect(screen.queryByRole('button', { name: 'Accept changes' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Accept All' })).toBeNull();
     expect(screen.getByLabelText('X preview').querySelector('.platform-card-text')).toHaveTextContent('Newer manual edit');
   });
 
@@ -362,10 +387,11 @@ describe('App URL preview fetching', () => {
     await act(async () => {});
     library.failWrites = true;
     await act(async () => {
-      fireEvent.click(within(screen.getByLabelText('X preview')).getByRole('button', { name: 'Accept changes' }));
+      fireEvent.click(within(screen.getByLabelText('X preview')).getByRole('button', { name: 'Accept All' }));
     });
     expect(screen.getByText(/Recovery checkpoint failed: Storage full/)).toBeInTheDocument();
-    expect(screen.getByLabelText('X preview').querySelector('.platform-card-text')).toHaveTextContent('Original');
+    expect(JSON.parse(window.localStorage.getItem('omnipost:workspace-v2')!).aiVersions?.x).toBeUndefined();
+    expect(within(screen.getByLabelText('X preview')).getByRole('button', { name: 'Retry save' })).toBeEnabled();
   });
 
   it('discards an automatic suggestion if its accepted baseline was re-synced while it was generating', async () => {
