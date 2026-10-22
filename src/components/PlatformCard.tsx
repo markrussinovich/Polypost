@@ -9,6 +9,8 @@ import { copyImageToClipboard, type Attachment, type LinkPreview } from '../lib/
 import type { PlatformRender, PlatformSpec } from '../lib/platforms/types';
 import { collapseToPreview, isTextTruncated, type PreviewMode } from '../lib/truncation';
 import { CardImagePreview, CardLinkPreview } from './CardLinkPreview';
+import { AiReview } from './AiReview';
+import type { AiProposal } from '../lib/ai/review';
 import { CharacterMeter } from './CharacterMeter';
 import { PaneEditor } from './PaneEditor';
 import { PLATFORM_ICONS } from './platformIcons';
@@ -37,6 +39,9 @@ interface PlatformCardProps {
   onPaneChange: (document: EditorNode) => void;
   onResync: () => void;
   onFit: () => void;
+  proposal?: AiProposal;
+  onAcceptProposal?: (key: string, proposal: AiProposal) => Promise<void>;
+  onRejectProposal?: (key: string) => void;
 }
 
 type CopyFlash = 'idle' | 'copied' | 'error';
@@ -60,6 +65,9 @@ export function PlatformCard({
   onPaneChange,
   onResync,
   onFit,
+  proposal,
+  onAcceptProposal,
+  onRejectProposal,
 }: PlatformCardProps) {
   const Icon = PLATFORM_ICONS[spec.id];
 
@@ -202,12 +210,12 @@ export function PlatformCard({
           ) : null}
         </span>
         <span className="platform-card-actions">
-          {aiReady && !isEditing && isForked ? (
-            <button type="button" className="card-icon-button card-ai-button" title={`Discard your ${spec.label} edits and adapt with AI`} aria-label={`Discard your ${spec.label} edits and adapt with AI`} disabled={isGenerating} onClick={onFit}>
+          {aiReady && !isEditing ? (
+            <button type="button" className="card-icon-button card-ai-button" title={`Suggest AI changes for ${spec.label}`} aria-label={`Suggest AI changes for ${spec.label}`} disabled={isGenerating} onClick={onFit}>
               <Sparkles aria-hidden="true" size={15} />
             </button>
           ) : null}
-          {isForked ? (
+          {isForked || isAiAdapted ? (
             <button type="button" className="card-icon-button" title="Re-sync from master draft" aria-label={`Re-sync ${spec.label} from the master draft`} onClick={onResync}>
               <RotateCcw aria-hidden="true" size={15} />
             </button>
@@ -252,6 +260,15 @@ export function PlatformCard({
         )}
       </div>
 
+      {!isEditing && proposal && onAcceptProposal && onRejectProposal ? (
+        <AiReview
+          proposal={proposal}
+          busy={isGenerating}
+          onAccept={() => onAcceptProposal(spec.id, proposal)}
+          onReject={() => onRejectProposal(spec.id)}
+          onRegenerate={onFit}
+        />
+      ) : null}
       {!isEditing && imagePreviewAttachment ? <CardImagePreview image={imagePreviewAttachment} spec={spec} /> : null}
       {!isEditing && !imagePreviewAttachment && previewUrl ? <CardLinkPreview url={previewUrl} preview={linkPreviews.get(previewUrl)} spec={spec} /> : null}
 

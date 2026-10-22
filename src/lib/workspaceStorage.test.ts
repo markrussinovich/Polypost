@@ -22,6 +22,7 @@ describe('workspace storage', () => {
       master: makeDoc('Master post'),
       overrides: { x: makeDoc('X variant') },
       enabledPlatforms: ['linkedin', 'x', 'bluesky'] as const,
+      aiVersions: { bluesky: makeDoc('Accepted AI version') },
     };
 
     expect(saveWorkspace({ ...input, enabledPlatforms: [...input.enabledPlatforms] }).ok).toBe(true);
@@ -30,6 +31,7 @@ describe('workspace storage', () => {
     expect(workspace?.master).toEqual(input.master);
     expect(workspace?.overrides.x).toEqual(input.overrides.x);
     expect(workspace?.enabledPlatforms).toEqual(['linkedin', 'x', 'bluesky']);
+    expect(workspace?.aiVersions).toEqual(input.aiVersions);
   });
 
   it('migrates a legacy v1 draft into a v2 workspace without destroying the legacy key', () => {

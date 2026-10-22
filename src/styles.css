@@ -1566,6 +1566,69 @@ h2 {
   cursor: pointer;
 }
 
+.draft-library-body {
+  display: grid;
+  gap: 12px;
+}
+
+.draft-library-tools,
+.ai-undo-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-undo-bar,
+.ai-review {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface);
+  margin-bottom: 12px;
+}
+
+.platform-card > .ai-review {
+  margin: 12px;
+}
+
+.ai-review-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ai-review-comparison h3 {
+  margin: 0 0 8px;
+  font-size: 0.875rem;
+}
+
+.ai-review-comparison pre {
+  margin: 0;
+  padding: 12px;
+  max-height: 320px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font: inherit;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-alt);
+}
+
+.draft-library-tools button[aria-pressed="true"] {
+  border-color: var(--linkedin-blue);
+  color: var(--linkedin-blue);
+}
+
+@media (max-width: 640px) {
+  .ai-review-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .draft-history-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -2497,4 +2560,3 @@ h2 {
   max-height: 360px;
   object-fit: contain;
 }
-

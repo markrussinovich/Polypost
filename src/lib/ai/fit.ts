@@ -14,6 +14,7 @@ export interface FitResult {
   count: number;
   withinLimit: boolean;
   attempts: number;
+  truncated: boolean;
 }
 
 export interface FitOptions {
@@ -49,7 +50,7 @@ export async function generateFit({ config, spec, masterText, style, signal, max
     const { doc, count } = measure(text, spec);
 
     if (count <= effectiveLimit) {
-      return { doc, text, count, withinLimit: true, attempts: attempt };
+      return { doc, text, count, withinLimit: true, attempts: attempt, truncated: false };
     }
 
     if (!best || count < best.count) {
@@ -70,7 +71,7 @@ export async function generateFit({ config, spec, masterText, style, signal, max
   // over the limit (e.g. a Threads post stuck at 502/500).
   const fallback = best ?? measureToResult('', spec);
   const trimmed = trimToLimit(fallback.text, spec, effectiveLimit);
-  return { ...trimmed, withinLimit: trimmed.count <= effectiveLimit, attempts: maxAttempts };
+  return { ...trimmed, withinLimit: trimmed.count <= effectiveLimit, attempts: maxAttempts, truncated: true };
 }
 
 function measureToResult(text: string, spec: PlatformSpec): { doc: EditorNode; text: string; count: number } {

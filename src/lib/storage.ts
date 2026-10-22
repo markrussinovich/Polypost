@@ -17,8 +17,7 @@ export interface DraftSnapshot {
   document: EditorNode;
   // Added with multi-platform support; optional so older snapshots stay valid.
   overrides?: Partial<Record<PlatformId, EditorNode>>;
-  // AI-generated per-platform versions (the session-only aiVersions map),
-  // serialized so an AI-adapted card restores as it was. Optional for back-compat.
+  // Accepted AI-generated per-platform versions. Optional for back-compat.
   aiVersions?: Partial<Record<PlatformId, EditorNode>>;
   enabledPlatforms?: PlatformId[];
   sources?: Source[];
@@ -30,12 +29,14 @@ export interface StoredWorkspace {
   master: EditorNode;
   overrides: Partial<Record<PlatformId, EditorNode>>;
   enabledPlatforms: PlatformId[];
+  aiVersions?: Partial<Record<PlatformId, EditorNode>>;
 }
 
 export interface WorkspaceInput {
   master: EditorNode;
   overrides: Partial<Record<PlatformId, EditorNode>>;
   enabledPlatforms: PlatformId[];
+  aiVersions?: Partial<Record<PlatformId, EditorNode>>;
 }
 
 interface LoadWorkspaceResult {
@@ -172,6 +173,7 @@ export function saveWorkspace(input: WorkspaceInput): SaveDraftResult {
       master: input.master,
       overrides: input.overrides,
       enabledPlatforms: input.enabledPlatforms,
+      aiVersions: input.aiVersions,
     };
     window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(stored));
     return { ok: true, message: 'Draft saved.' };
@@ -258,7 +260,7 @@ function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
-function createDraftId(): string {
+export function createDraftId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID();
   }
@@ -289,7 +291,10 @@ function isStoredWorkspace(value: unknown): value is StoredWorkspace {
     return false;
   }
 
-  return Object.values(candidate.overrides).every(isEditorNode);
+  return Object.values(candidate.overrides).every(isEditorNode) &&
+    (candidate.aiVersions === undefined ||
+      (typeof candidate.aiVersions === 'object' && candidate.aiVersions !== null &&
+        Object.values(candidate.aiVersions).every(isEditorNode)));
 }
 
 function isDraftSnapshot(value: unknown): value is DraftSnapshot {

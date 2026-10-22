@@ -22,6 +22,7 @@ describe('generateFit deterministic length check', () => {
 
     expect(result.withinLimit).toBe(true);
     expect(result.attempts).toBe(1);
+    expect(result.truncated).toBe(false);
     expect(result.count).toBeLessThanOrEqual(xSpec.charLimit);
     expect(mockGenerate).toHaveBeenCalledTimes(1);
   });
@@ -79,6 +80,7 @@ describe('generateFit deterministic length check', () => {
     const result = await generateFit({ config, spec: xSpec, masterText: 'long', maxAttempts: 3 });
 
     expect(mockGenerate).toHaveBeenCalledTimes(3);
+    expect(result.truncated).toBe(true);
     // Autofit must never leave a card over the limit, even when the model can't.
     expect(result.withinLimit).toBe(true);
     expect(result.count).toBeLessThanOrEqual(xSpec.charLimit);

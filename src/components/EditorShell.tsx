@@ -53,7 +53,6 @@ export function EditorShell({
       // paste hooks proved unreliable in the extension's mount, so a
       // capture-phase listener guarantees our sanitization is applied.
       currentEditor.view.dom.addEventListener('paste', (event) => handleEditorPaste(currentEditor, event), true);
-      onDocumentChange(currentEditor.getJSON() as EditorNode);
     },
     onUpdate({ editor: currentEditor }) {
       onDocumentChange(currentEditor.getJSON() as EditorNode);

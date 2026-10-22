@@ -39,12 +39,13 @@ export function HelpContent({ webApp = false }: { webApp?: boolean }) {
             pasted text. Sources are context only — they're never posted. Click a pasted source to edit it inline; an
             untitled paste is named automatically when AI is configured.
           </li>
-          <li>Use "Adapt with AI" on a card to rewrite the post for that platform on demand.</li>
+          <li>Use "Suggest AI changes" on a card to propose a rewrite for that platform on demand.</li>
           <li>
-            With auto-fit on, any platform over its limit is rewritten automatically about 3 seconds after you stop
-            typing (shown with an AI badge; re-sync drops it). Fitted versions are re-checked against the limit and
-            regenerated if still too long.
+            With auto-fit on, suggestions for over-limit platforms appear about 3 seconds after you stop typing.
+            Compare Before and Suggested, then Accept changes, Reject, or Regenerate. Nothing replaces your text
+            without acceptance. A warning identifies any suggestion mechanically cut to fit.
           </li>
+          <li>Undo AI change restores the previous version until your next content edit. Recovery history also retains versions before and after acceptance.</li>
           <li>Add Style guidance in settings to steer the voice (e.g. "keep it light-hearted with a bit of humor").</li>
         </ul>
       </section>
@@ -129,6 +130,13 @@ export function HelpContent({ webApp = false }: { webApp?: boolean }) {
         <h3>Drafts &amp; shortcuts</h3>
         <ul className="help-list">
           <li>Saved drafts (including per-platform customizations and your enabled platforms) are local to this browser only.</li>
+          {webApp ? (
+            <>
+              <li>Saved drafts includes searchable named drafts and the latest 20 recovery checkpoints. Save draft creates a new entry; Update draft replaces the selected entry. Named drafts are never automatically evicted.</li>
+              <li>Recovery checkpoints include all platform variants, AI sources, and attached media. They are saved after 10 seconds of inactivity and before destructive changes. Restore one from Recovery history.</li>
+              <li>Export backup downloads all library entries and the current workspace, including attachments. API keys and AI settings are excluded. Import backup validates the file and adds new entries without overwriting existing drafts or the editor. Browser data can be cleared, so keep backups outside the browser.</li>
+            </>
+          ) : null}
           <li>Keyboard shortcuts include Ctrl+B, Ctrl+I, Ctrl+Z, and Ctrl+Y, and work in both the main editor and the platform previews.</li>
         </ul>
       </section>
