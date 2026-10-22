@@ -40,7 +40,7 @@ interface PlatformCardProps {
   onResync: () => void;
   onFit: () => void;
   proposal?: AiProposal;
-  onAcceptProposal?: (key: string, proposal: AiProposal) => Promise<void>;
+  onAcceptProposal?: (key: string, proposal: AiProposal, document?: EditorNode) => Promise<void>;
   onRejectProposal?: (key: string) => void;
 }
 
@@ -264,7 +264,7 @@ export function PlatformCard({
         <AiReview
           proposal={proposal}
           busy={isGenerating}
-          onAccept={() => onAcceptProposal(spec.id, proposal)}
+          onAccept={(document) => onAcceptProposal(spec.id, proposal, document)}
           onReject={() => onRejectProposal(spec.id)}
           onRegenerate={onFit}
         />

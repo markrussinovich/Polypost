@@ -1593,20 +1593,8 @@ h2 {
   margin: 12px;
 }
 
-.ai-review-comparison {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.ai-review-comparison h3 {
-  margin: 0 0 8px;
-  font-size: 0.875rem;
-}
-
-.ai-review-comparison pre {
-  margin: 0;
+.ai-review-changes {
+  margin: 0 0 12px;
   padding: 12px;
   max-height: 320px;
   overflow: auto;
@@ -1618,15 +1606,40 @@ h2 {
   background: var(--surface-alt);
 }
 
+.ai-review-changes ins {
+  color: var(--success);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.ai-review-changes del {
+  color: var(--danger);
+  text-decoration: line-through;
+}
+
+.ai-review-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.ai-review-change {
+  cursor: pointer;
+}
+
+.ai-review-change.is-current,
+.ai-review-change:focus-visible {
+  outline: 2px solid var(--linkedin-blue);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 .draft-library-tools button[aria-pressed="true"] {
   border-color: var(--linkedin-blue);
   color: var(--linkedin-blue);
-}
-
-@media (max-width: 640px) {
-  .ai-review-comparison {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .draft-history-actions {

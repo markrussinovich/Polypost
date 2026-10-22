@@ -29,7 +29,7 @@ interface PlatformRailProps {
   onResync: (id: PlatformId) => void;
   onFit: (id: PlatformId) => void;
   proposals?: ReadonlyMap<string, AiProposal>;
-  onAcceptProposal?: (key: string, proposal: AiProposal) => Promise<void>;
+  onAcceptProposal?: (key: string, proposal: AiProposal, document?: EditorNode) => Promise<void>;
   onRejectProposal?: (key: string) => void;
 }
 

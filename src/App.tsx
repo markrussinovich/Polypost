@@ -790,7 +790,7 @@ function App() {
     return proposalsRef.current.get(key) === proposal && current.master === proposal.master && before === proposal.before;
   }
 
-  async function acceptProposal(key: string, proposal: AiProposal) {
+  async function acceptProposal(key: string, proposal: AiProposal, document = proposal.after) {
     if (!isCurrentProposal(key, proposal)) return;
     if (!await saveRecovery('Before accepting AI changes') || !isCurrentProposal(key, proposal)) return;
     try {
@@ -798,11 +798,11 @@ function App() {
       if (proposal.platform) {
         accepted.overrides = { ...accepted.overrides };
         delete accepted.overrides[proposal.platform];
-        accepted.aiVersions = { ...accepted.aiVersions, [proposal.platform]: proposal.after };
+        accepted.aiVersions = { ...accepted.aiVersions, [proposal.platform]: document };
       } else {
-        accepted.document = proposal.after;
+        accepted.document = document;
         accepted.aiVersions = {};
-        accepted.characterCount = renderForPlatform(proposal.after, PLATFORMS_BY_ID.linkedin).summary.count;
+        accepted.characterCount = renderForPlatform(document, PLATFORMS_BY_ID.linkedin).summary.count;
       }
       await saveLibraryDraft(accepted);
       await refreshLibrary();
@@ -815,13 +815,13 @@ function App() {
     if (proposal.platform) {
       const id = proposal.platform;
       setWorkspace((prev) => resyncPlatform(prev, id));
-      setAiVersions((prev) => new Map(prev).set(id, proposal.after));
+      setAiVersions((prev) => new Map(prev).set(id, document));
       adaptedKeyRef.current.set(id, makeAdaptKey(llmConfig.stylePrompt, docToMarkdown(proposal.master)));
       setActivePaneEditor((current) => current === id ? null : current);
       dismissProposal(key);
     } else {
       cancelAiWork();
-      setWorkspace((prev) => applyMasterEdit(prev, proposal.after));
+      setWorkspace((prev) => applyMasterEdit(prev, document));
       setAiVersions(new Map());
       adaptedKeyRef.current.clear();
       setEditorVersion((version) => version + 1);
@@ -1047,7 +1047,7 @@ function App() {
               <AiReview
                 proposal={proposals.get('master')!}
                 busy={authorBusy}
-                onAccept={() => acceptProposal('master', proposals.get('master')!)}
+                onAccept={(document) => acceptProposal('master', proposals.get('master')!, document)}
                 onReject={() => dismissProposal('master')}
                 onRegenerate={() => void handleAuthor(proposals.get('master')?.instruction ?? '')}
               />

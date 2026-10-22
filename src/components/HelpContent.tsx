@@ -42,7 +42,10 @@ export function HelpContent({ webApp = false }: { webApp?: boolean }) {
           <li>Use "Suggest AI changes" on a card to propose a rewrite for that platform on demand.</li>
           <li>
             With auto-fit on, suggestions for over-limit platforms appear about 3 seconds after you stop typing.
-            Compare Before and Suggested, then Accept changes, Reject, or Regenerate. Nothing replaces your text
+            Review underlined additions and struck-through removals in a single tracked-changes view. Select a change
+            or use Previous/Next, then Accept change or Reject change. Accept All and Reject All resolve the remaining
+            changes. Accept changes applies your reviewed draft, accepting any unreviewed suggestions; Reject discards
+            the entire suggestion. Initial drafts start entirely unmarked. Nothing replaces your text
             without acceptance. A warning identifies any suggestion mechanically cut to fit.
           </li>
           <li>Undo AI change restores the previous version until your next content edit. Recovery history also retains versions before and after acceptance.</li>

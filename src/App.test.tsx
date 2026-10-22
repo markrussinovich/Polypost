@@ -272,6 +272,27 @@ describe('App URL preview fetching', () => {
     expect(vi.mocked(generateFit).mock.calls.some(([options]) => options.spec.id === 'x')).toBe(false);
   });
 
+  it('applies per-change decisions to the platform output and its recovery snapshot', async () => {
+    vi.mocked(generateFit).mockResolvedValueOnce({
+      doc: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'My new post!' }] }] },
+      text: 'My new post!', count: 12, withinLimit: true, attempts: 1, truncated: false,
+    });
+    window.localStorage.setItem('omnipost:workspace-v2', JSON.stringify({
+      version: 2, master: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'My old post.' }] }] },
+      overrides: {}, enabledPlatforms: ['x'],
+    }));
+    render(<App />);
+    saveAiSettings('Friendly');
+    await act(async () => {});
+    const card = screen.getByLabelText('X preview');
+    fireEvent.click(within(card).getByRole('button', { name: 'Reject change' }));
+    fireEvent.click(within(card).getByRole('button', { name: 'Accept All' }));
+    await act(async () => { fireEvent.click(within(card).getByRole('button', { name: 'Accept changes' })); });
+    expect(card.querySelector('.platform-card-text')).toHaveTextContent('My old post!');
+    expect(library.drafts.some((draft) => draft.aiVersions?.x?.content?.[0]?.content?.[0]?.text === 'My old post!')).toBe(true);
+    expect(screen.getByLabelText('Mock post editor')).toHaveValue('My old post.');
+  });
+
   it('rejects and regenerates suggestions without changing copied preview text', async () => {
     render(<App />);
     fireEvent.change(screen.getByLabelText('Mock post editor'), { target: { value: 'Original post' } });
