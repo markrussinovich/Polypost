@@ -20,11 +20,19 @@ const callbacks = () => ({
   onReject: vi.fn(),
 });
 
-describe('inline AI review', () => {
-  it('shows a separate accept and reject control on every change without instructions or final approval', () => {
+function changeAction(number: number, action: 'Accept' | 'Reject', rightClick = false) {
+  const change = screen.getByRole('group', { name: `Change ${number}` });
+  if (rightClick) fireEvent.contextMenu(change, { clientX: 100, clientY: 120 });
+  else fireEvent.click(change, { clientX: 100, clientY: 120 });
+  fireEvent.click(screen.getByRole('menuitem', { name: `${action} change` }));
+}
+
+describe('main draft AI review', () => {
+  it('hides per-change actions until a change is clicked', () => {
     render(<AiReview proposal={proposal} busy={false} {...callbacks()} />);
-    expect(screen.getAllByRole('button', { name: /^Accept change / })).toHaveLength(2);
-    expect(screen.getAllByRole('button', { name: /^Reject change / })).toHaveLength(2);
+    expect(screen.getAllByRole('group', { name: /^Change / })).toHaveLength(2);
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Accept change / })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Accept changes' })).toBeNull();
     expect(screen.queryByText(/Tracked changes:/)).toBeNull();
     expect(screen.queryByText(/Your current text/)).toBeNull();
@@ -33,16 +41,17 @@ describe('inline AI review', () => {
   it('applies mixed choices automatically after the last decision', async () => {
     const handlers = callbacks();
     render(<AiReview proposal={proposal} busy={false} {...handlers} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Reject change 1' }));
+    changeAction(1, 'Reject');
     expect(handlers.onAccept).not.toHaveBeenCalled();
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Accept change 1' })); });
+    fireEvent.contextMenu(screen.getByRole('group', { name: 'Change 1' }));
+    await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: 'Accept change' })); });
     expect(docToMarkdown(handlers.onAccept.mock.calls[0][0])).toBe('My old post!');
   });
 
   it('accepts all pending changes but preserves prior rejections', async () => {
     const handlers = callbacks();
     render(<AiReview proposal={proposal} busy={false} {...handlers} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Reject change 1' }));
+    changeAction(1, 'Reject');
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Accept All' })); });
     expect(docToMarkdown(handlers.onAccept.mock.calls[0][0])).toBe('My old post!');
   });
@@ -93,7 +102,31 @@ describe('inline AI review', () => {
 
   it('disables decisions while generation is running', () => {
     render(<AiReview proposal={proposal} busy {...callbacks()} />);
-    expect(screen.getByRole('button', { name: 'Accept change 1' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('group', { name: 'Change 1' }));
+    expect(screen.queryByRole('menu')).toBeNull();
     expect(screen.getByRole('button', { name: 'Reject All' })).toBeDisabled();
+  });
+
+  it('opens from either mouse button and dismisses on Escape or an outside click', () => {
+    render(<AiReview proposal={proposal} busy={false} {...callbacks()} />);
+    const change = screen.getByRole('group', { name: 'Change 1' });
+    fireEvent.click(change, { clientX: 100, clientY: 120 });
+    expect(screen.getByRole('menu')).toHaveStyle({ left: '100px', top: '120px' });
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    fireEvent.contextMenu(change, { clientX: 180, clientY: 200 });
+    expect(screen.getByRole('menuitem', { name: 'Accept change' })).toHaveFocus();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('supports keyboard context menus and arrow navigation', () => {
+    render(<AiReview proposal={proposal} busy={false} {...callbacks()} />);
+    fireEvent.keyDown(screen.getByRole('group', { name: 'Change 1' }), { key: 'F10', shiftKey: true });
+    expect(screen.getByRole('menuitem', { name: 'Accept change' })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'ArrowDown' });
+    expect(screen.getByRole('menuitem', { name: 'Reject change' })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'ArrowUp' });
+    expect(screen.getByRole('menuitem', { name: 'Accept change' })).toHaveFocus();
   });
 });

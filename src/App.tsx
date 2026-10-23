@@ -393,9 +393,8 @@ function App() {
               workspaceRef.current.overrides[id] === undefined &&
               (aiVersionsRef.current.get(id) ?? workspaceRef.current.master) === before) {
             adaptedKeyRef.current.set(id, adaptKey);
-            setProposals((prev) => new Map(prev).set(id, {
-              before, after: result.doc, master: workspace.master, platform: id, truncated: result.truncated,
-            }));
+            setAiVersions((prev) => new Map(prev).set(id, result.doc));
+            if (result.truncated) setAiError(`${spec.label}: AI version was cut to fit.`);
           }
         } catch (error) {
           if (!controller.signal.aborted) {
@@ -458,9 +457,10 @@ function App() {
       // Record what this version was generated from so the idle pass doesn't
       // immediately regenerate (and visibly replace) the accepted result.
       adaptedKeyRef.current.set(id, makeAdaptKey(llmConfig.stylePrompt, docToMarkdown(masterAtRequest)));
-      setProposals((prev) => new Map(prev).set(id, {
-        before, after: result.doc, master: masterAtRequest, platform: id, truncated: result.truncated,
-      }));
+      setAiUndo({ workspace: current, versions: new Map(aiVersionsRef.current) });
+      setWorkspace((prev) => resyncPlatform(prev, id));
+      setAiVersions((prev) => new Map(prev).set(id, result.doc));
+      if (result.truncated) setAiError(`${spec.label}: AI version was cut to fit.`);
     } catch (error) {
       if (!controller.signal.aborted) {
         setAiError(`${spec.label}: ${error instanceof Error ? error.message : 'AI request failed.'}`);
@@ -1090,9 +1090,6 @@ function App() {
             onPaneChange={handlePaneChange}
             onResync={handleResync}
             onFit={handleFit}
-            proposals={proposals}
-            onAcceptProposal={acceptProposal}
-            onRejectProposal={dismissProposal}
           />
         </section>
       </main>

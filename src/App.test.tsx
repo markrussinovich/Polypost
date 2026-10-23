@@ -232,29 +232,20 @@ describe('App URL preview fetching', () => {
     await act(async () => {});
   });
 
-  it('stages platform suggestions, accepts explicitly, and undoes without losing the master', async () => {
+  it('automatically applies platform adaptations without showing tracked changes', async () => {
     render(<App />);
     fireEvent.change(screen.getByLabelText('Mock post editor'), { target: { value: 'Original post' } });
     saveAiSettings('Friendly');
     await act(async () => {});
 
     const xCard = screen.getByLabelText('X preview');
-    expect(xCard.querySelector('.platform-card-text')).toBeNull();
-    expect(within(xCard).getByRole('region', { name: 'Tracked changes for X' })).toHaveTextContent('Original post');
-    expect(within(xCard).getByText('Adapted')).toBeInTheDocument();
-    await act(async () => { fireEvent.click(within(xCard).getByRole('button', { name: /^(Copy|Copied!)$/ })); });
-    expect(copyPlainText).toHaveBeenLastCalledWith('Original post');
-
-    await act(async () => { fireEvent.click(within(xCard).getByRole('button', { name: 'Accept All' })); });
     expect(xCard.querySelector('.platform-card-text')).toHaveTextContent('Adapted');
+    expect(within(xCard).queryByRole('region', { name: 'Tracked changes for X' })).toBeNull();
+    expect(within(xCard).getByText('Adapted')).toBeInTheDocument();
     await act(async () => { fireEvent.click(within(xCard).getByRole('button', { name: /^(Copy|Copied!)$/ })); });
     expect(copyPlainText).toHaveBeenLastCalledWith('Adapted');
     expect(screen.getByLabelText('Mock post editor')).toHaveValue('Original post');
-    expect(library.drafts.some((draft) => draft.aiVersions?.x)).toBe(true);
-
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Undo AI change' })); });
-    expect(xCard.querySelector('.platform-card-text')).toHaveTextContent('Original post');
-    expect(screen.getByLabelText('Mock post editor')).toHaveValue('Original post');
+    expect(JSON.parse(window.localStorage.getItem('omnipost:workspace-v2')!).aiVersions.x).toBeDefined();
   });
 
   it('persists accepted AI variants across reloads without automatically regenerating them', async () => {
@@ -262,9 +253,6 @@ describe('App URL preview fetching', () => {
     fireEvent.change(screen.getByLabelText('Mock post editor'), { target: { value: 'Original post' } });
     saveAiSettings('Friendly');
     await act(async () => {});
-    await act(async () => {
-      fireEvent.click(within(screen.getByLabelText('X preview')).getByRole('button', { name: 'Accept All' }));
-    });
     app.unmount();
     vi.mocked(generateFit).mockClear();
     render(<App />);
@@ -273,27 +261,29 @@ describe('App URL preview fetching', () => {
     expect(vi.mocked(generateFit).mock.calls.some(([options]) => options.spec.id === 'x')).toBe(false);
   });
 
-  it('applies per-change decisions to the platform output and its recovery snapshot', async () => {
-    vi.mocked(generateFit).mockResolvedValueOnce({
-      doc: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'My new post!' }] }] },
-      text: 'My new post!', count: 12, withinLimit: true, attempts: 1, truncated: false,
-    });
+  it('reviews individual changes only in the main draft and updates platform output after review', async () => {
+    vi.mocked(generateText).mockResolvedValueOnce('My new post!');
     window.localStorage.setItem('omnipost:workspace-v2', JSON.stringify({
       version: 2, master: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'My old post.' }] }] },
       overrides: {}, enabledPlatforms: ['x'],
     }));
     render(<App />);
-    saveAiSettings('Friendly');
+    saveAiSettings();
     await act(async () => {});
+    fireEvent.change(screen.getByLabelText('AI instruction'), { target: { value: 'Rewrite' } });
+    await act(async () => { vi.advanceTimersByTime(3000); });
     const card = screen.getByLabelText('X preview');
-    fireEvent.click(within(card).getByRole('button', { name: 'Reject change 1' }));
-    await act(async () => { fireEvent.click(within(card).getByRole('button', { name: 'Accept change 1' })); });
+    expect(within(card).queryByRole('region', { name: 'Tracked changes for X' })).toBeNull();
+    fireEvent.contextMenu(screen.getByRole('group', { name: 'Change 1' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Reject change' }));
+    fireEvent.click(screen.getByRole('group', { name: 'Change 1' }));
+    await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: 'Accept change' })); });
     expect(card.querySelector('.platform-card-text')).toHaveTextContent('My old post!');
-    expect(library.drafts.some((draft) => draft.aiVersions?.x?.content?.[0]?.content?.[0]?.text === 'My old post!')).toBe(true);
-    expect(screen.getByLabelText('Mock post editor')).toHaveValue('My old post.');
+    expect(library.drafts.some((draft) => draft.document.content?.[0]?.content?.[0]?.text === 'My old post!')).toBe(true);
+    expect(screen.getByLabelText('Mock post editor')).toHaveValue('My old post!');
   });
 
-  it('rejects and regenerates suggestions without changing copied preview text', async () => {
+  it('manually regenerates platform output without review markup', async () => {
     render(<App />);
     fireEvent.change(screen.getByLabelText('Mock post editor'), { target: { value: 'Original post' } });
     saveAiSettings('Friendly');
@@ -302,11 +292,10 @@ describe('App URL preview fetching', () => {
     const calls = vi.mocked(generateFit).mock.calls.length;
     await act(async () => { fireEvent.click(within(card).getByRole('button', { name: 'Suggest AI changes for X' })); });
     expect(generateFit).toHaveBeenCalledTimes(calls + 1);
-    await act(async () => { fireEvent.click(within(card).getByRole('button', { name: 'Reject All' })); });
     expect(within(card).queryByRole('button', { name: 'Accept All' })).toBeNull();
     await act(async () => { vi.advanceTimersByTime(3000); });
     expect(generateFit).toHaveBeenCalledTimes(calls + 1);
-    expect(card.querySelector('.platform-card-text')).toHaveTextContent('Original post');
+    expect(card.querySelector('.platform-card-text')).toHaveTextContent('Adapted');
   });
 
   it('reviews AI authoring and retains the original in recovery when accepted', async () => {
@@ -349,7 +338,8 @@ describe('App URL preview fetching', () => {
     expect(generateFit).not.toHaveBeenCalled();
     await act(async () => { vi.advanceTimersByTime(1); });
     expect(generateFit).toHaveBeenCalledTimes(2);
-    expect(within(screen.getByLabelText('X preview')).getByRole('button', { name: 'Accept change 1' })).toBeInTheDocument();
+    expect(screen.getByLabelText('X preview').querySelector('.platform-card-text')).toHaveTextContent('Adapted');
+    expect(within(screen.getByLabelText('X preview')).queryByRole('group', { name: 'Change 1' })).toBeNull();
   });
 
   it('does not apply an outstanding suggestion after the author edits the draft', async () => {
@@ -383,15 +373,17 @@ describe('App URL preview fetching', () => {
   it('keeps the original text when recovery storage fails during AI acceptance', async () => {
     render(<App />);
     fireEvent.change(screen.getByLabelText('Mock post editor'), { target: { value: 'Original' } });
-    saveAiSettings('Friendly');
+    saveAiSettings();
     await act(async () => {});
+    fireEvent.change(screen.getByLabelText('AI instruction'), { target: { value: 'Rewrite' } });
+    await act(async () => { vi.advanceTimersByTime(3000); });
     library.failWrites = true;
     await act(async () => {
-      fireEvent.click(within(screen.getByLabelText('X preview')).getByRole('button', { name: 'Accept All' }));
+      fireEvent.click(within(screen.getByRole('region', { name: 'Review AI changes for master draft' })).getByRole('button', { name: 'Accept All' }));
     });
     expect(screen.getByText(/Recovery checkpoint failed: Storage full/)).toBeInTheDocument();
     expect(JSON.parse(window.localStorage.getItem('omnipost:workspace-v2')!).aiVersions?.x).toBeUndefined();
-    expect(within(screen.getByLabelText('X preview')).getByRole('button', { name: 'Retry save' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Retry save' })).toBeEnabled();
   });
 
   it('discards an automatic suggestion if its accepted baseline was re-synced while it was generating', async () => {

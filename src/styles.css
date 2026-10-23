@@ -220,11 +220,12 @@ h2 {
 }
 
 .platform-chip {
+  --chip-padding: 14px;
   display: inline-flex;
   align-items: center;
   gap: 7px;
   min-height: 36px;
-  padding: 0 14px;
+  padding: 0 var(--chip-padding);
   border: 1px solid rgba(100, 116, 139, 0.35);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.9);
@@ -244,6 +245,8 @@ h2 {
 /* Enabled platforms get a consistent blue border to indicate the "on" state,
    regardless of the platform's brand color (which still tints the icon/label). */
 .platform-chip.is-enabled {
+  border-width: 3px;
+  padding-inline: calc(var(--chip-padding) - 2px);
   border-color: var(--linkedin-blue);
   background: #fff;
   box-shadow: 0 6px 16px rgba(23, 35, 60, 0.08);
@@ -405,6 +408,32 @@ h2 {
   color: #6d28d9;
   flex: 0 0 auto;
   margin-top: 9px;
+}
+
+.ai-assist.is-busy .ai-assist-icon {
+  animation: ai-assist-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes ai-assist-pulse {
+  50% { opacity: 0.3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-assist.is-busy .ai-assist-icon {
+    animation: none;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Auto-growing multiline prompt box (height is set to scrollHeight in JS, capped
@@ -1621,24 +1650,41 @@ h2 {
   border-radius: 2px;
 }
 
-.ai-review-change-actions {
-  display: inline-flex;
-  vertical-align: middle;
-  gap: 2px;
-  margin: 0 4px;
+.ai-review-menu {
+  position: fixed;
+  z-index: 1300;
+  width: 176px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 4px 12px var(--line);
+}
+
+.ai-review-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 8px;
+  color: inherit;
+  background: var(--surface);
+  text-align: left;
+}
+
+.ai-review-menu button:hover,
+.ai-review-menu button:focus-visible {
+  background: var(--surface-alt);
+  outline: 2px solid var(--linkedin-blue);
+  outline-offset: -2px;
 }
 
 .ai-review-changes [contenteditable] {
   cursor: text;
   outline-color: var(--linkedin-blue);
-}
-
-.ai-review-change-actions .ai-review-accept {
-  color: var(--success);
-}
-
-.ai-review-change-actions .ai-review-reject {
-  color: var(--danger);
 }
 
 .editor-workspace > .ai-review {
@@ -1807,9 +1853,9 @@ h2 {
   }
 
   .platform-chip {
+    --chip-padding: 10px;
     gap: 5px;
     min-height: 32px;
-    padding: 0 10px;
     font-size: 0.78rem;
     white-space: nowrap;
   }

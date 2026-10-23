@@ -15,14 +15,23 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function setup() {
+function setup(busy = false) {
   const onSubmit = vi.fn();
-  render(<AiAssist ready busy={false} error={null} onSubmit={onSubmit} onOpenSettings={vi.fn()}
+  render(<AiAssist ready busy={busy} error={null} onSubmit={onSubmit} onOpenSettings={vi.fn()}
     hasDraft={false} stylePrompt="" sources={[]} onAddSource={vi.fn()} onUpdateSource={vi.fn()} onRemoveSource={vi.fn()} />);
   return { onSubmit, input: screen.getByLabelText('AI instruction') };
 }
 
 describe('automatic AI authoring', () => {
+  it('uses an animated icon with a screen-reader-only generating status', () => {
+    setup(true);
+    const status = screen.getByRole('status');
+    expect(status).toHaveClass('sr-only');
+    expect(status).toHaveTextContent('Generating draft');
+    expect(status.closest('.ai-assist')).toHaveClass('is-busy');
+    expect(status.closest('.ai-assist')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByText('Working...')).toBeNull();
+  });
   it('generates after three seconds of inactivity without a Generate button', async () => {
     const { onSubmit, input } = setup();
     expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull();

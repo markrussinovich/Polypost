@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
 
 import { docToMarkdown } from '../lib/ai/docText';
 import { groupReviewChanges, reviewChanges, type AiProposal } from '../lib/ai/review';
@@ -24,12 +25,53 @@ function ReviewProposal({ proposal, busy, onAccept, onReject }: AiReviewProps) {
   const [edits, setEdits] = useState<Record<number, string>>({});
   const editValues = useRef(edits);
   const autoApplied = useRef(false);
+  const [menu, setMenu] = useState<{ index: number; left: number; top: number; focus: boolean } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuAnchor = useRef<HTMLSpanElement | null>(null);
   const before = docToMarkdown(proposal.before);
   const after = docToMarkdown(proposal.after);
   const label = proposal.platform ? PLATFORMS_BY_ID[proposal.platform].label : 'master draft';
   const changes = useMemo(() => groupReviewChanges(reviewChanges(before, after)), [before, after]);
   const pending = changes.flatMap((change, index) => change.changed && !decisions[index] ? [index] : []);
   const locked = busy || saving;
+
+  useEffect(() => {
+    if (!menu) return;
+    if (menu.focus) menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    const dismiss = (event: PointerEvent) => {
+      if (event.target instanceof Node && !menuRef.current?.contains(event.target)) setMenu(null);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setMenu(null);
+        menuAnchor.current?.focus();
+      }
+    };
+    const close = () => setMenu(null);
+    document.addEventListener('pointerdown', dismiss);
+    document.addEventListener('keydown', escape);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      document.removeEventListener('keydown', escape);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [menu]);
+
+  function openMenu(element: HTMLSpanElement, index: number, focus: boolean, point?: { x: number; y: number }) {
+    if (locked) return;
+    const bounds = element.getBoundingClientRect();
+    menuAnchor.current = element;
+    setMenu({
+      index,
+      left: Math.max(8, Math.min(point?.x ?? bounds.left, window.innerWidth - 184)),
+      top: Math.max(8, Math.min(point?.y ?? bounds.bottom + 4, window.innerHeight - 100)),
+      focus,
+    });
+  }
 
   function reviewedDocument(next: typeof decisions): EditorNode {
     const text = changes.map((change, index) =>
@@ -59,6 +101,7 @@ function ReviewProposal({ proposal, busy, onAccept, onReject }: AiReviewProps) {
   }, [busy]);
 
   function decide(index: number, decision: 'accepted' | 'rejected') {
+    setMenu(null);
     const next = { ...decisions, [index]: decision };
     const nextEdits = { ...editValues.current };
     if (decision === 'rejected') delete nextEdits[index];
@@ -69,6 +112,7 @@ function ReviewProposal({ proposal, busy, onAccept, onReject }: AiReviewProps) {
   }
 
   function decideAll(decision: 'accepted' | 'rejected') {
+    setMenu(null);
     const next = { ...decisions, ...Object.fromEntries(pending.map((index) => [index, decision])) };
     if (decision === 'rejected') {
       const nextEdits = { ...editValues.current };
@@ -136,19 +180,59 @@ function ReviewProposal({ proposal, busy, onAccept, onReject }: AiReviewProps) {
       <div className="ai-review-changes" role="region" aria-label={`Tracked changes for ${label}`}>
         {changes.map((change, index) => !change.changed || decisions[index]
           ? <span key={index}>{editable(decisions[index] === 'rejected' ? change.before : change.after, index)}</span>
-          : <span key={index} className="ai-review-change">
+          : <span
+              key={index}
+              className="ai-review-change"
+              role="group"
+              tabIndex={locked ? -1 : 0}
+              aria-label={`Change ${pending.indexOf(index) + 1}`}
+              aria-haspopup="menu"
+              aria-expanded={menu?.index === index}
+              onClick={(event) => openMenu(event.currentTarget, index, false, { x: event.clientX, y: event.clientY })}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                openMenu(event.currentTarget, index, true, { x: event.clientX, y: event.clientY });
+              }}
+              onKeyDown={(event) => {
+                if (event.target === event.currentTarget &&
+                    (event.key === 'Enter' || event.key === ' ' || event.key === 'ContextMenu' ||
+                      (event.shiftKey && event.key === 'F10'))) {
+                  event.preventDefault();
+                  openMenu(event.currentTarget, index, true);
+                }
+              }}
+            >
               {change.before ? <del aria-label="Removed text">{change.before}</del> : null}
               {change.after ? <ins aria-label="Added text">{editable(change.after, index)}</ins> : null}
-              <span className="ai-review-change-actions" contentEditable={false}>
-                <button type="button" className="card-icon-button ai-review-accept" disabled={locked} aria-label={`Accept change ${pending.indexOf(index) + 1}`} title="Accept change" onClick={() => decide(index, 'accepted')}>
-                  <Check aria-hidden="true" size={14} />
-                </button>
-                <button type="button" className="card-icon-button ai-review-reject" disabled={locked} aria-label={`Reject change ${pending.indexOf(index) + 1}`} title="Reject change" onClick={() => decide(index, 'rejected')}>
-                  <X aria-hidden="true" size={14} />
-                </button>
-              </span>
             </span>)}
       </div>
+      {menu && !locked ? createPortal(
+        <div
+          ref={menuRef}
+          className="ai-review-menu"
+          role="menu"
+          aria-label="Change actions"
+          style={{ left: menu.left, top: menu.top }}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setMenu(null);
+          }}
+          onKeyDown={(event) => {
+            const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button')];
+            const current = buttons.findIndex((button) => button === document.activeElement);
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+              event.preventDefault();
+              buttons[(current + (event.key === 'ArrowDown' ? 1 : buttons.length - 1)) % buttons.length]?.focus();
+            }
+          }}
+        >
+          <button type="button" role="menuitem" onClick={() => decide(menu.index, 'accepted')}>
+            <Check aria-hidden="true" size={14} /> Accept change
+          </button>
+          <button type="button" role="menuitem" onClick={() => decide(menu.index, 'rejected')}>
+            <X aria-hidden="true" size={14} /> Reject change
+          </button>
+        </div>, document.body,
+      ) : null}
       {!pending.length && !saving ? (
         <button type="button" className="secondary-action" disabled={busy} onClick={() => void apply(decisions)}>Retry save</button>
       ) : null}

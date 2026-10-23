@@ -1,7 +1,6 @@
 import { AlertTriangle } from 'lucide-react';
 
 import type { EditorNode } from '../lib/exportText';
-import type { AiProposal } from '../lib/ai/review';
 import type { Attachment, LinkPreview } from '../lib/media';
 import type { PlatformId, PlatformRender, PlatformSpec } from '../lib/platforms/types';
 import { PlatformCard } from './PlatformCard';
@@ -28,9 +27,6 @@ interface PlatformRailProps {
   onPaneChange: (id: PlatformId, document: EditorNode) => void;
   onResync: (id: PlatformId) => void;
   onFit: (id: PlatformId) => void;
-  proposals?: ReadonlyMap<string, AiProposal>;
-  onAcceptProposal?: (key: string, proposal: AiProposal, document?: EditorNode) => Promise<void>;
-  onRejectProposal?: (key: string) => void;
 }
 
 export function PlatformRail({
@@ -51,9 +47,6 @@ export function PlatformRail({
   onPaneChange,
   onResync,
   onFit,
-  proposals,
-  onAcceptProposal,
-  onRejectProposal,
 }: PlatformRailProps) {
   if (specs.length === 0) {
     return (
@@ -97,9 +90,6 @@ export function PlatformRail({
             onPaneChange={(doc) => onPaneChange(spec.id, doc)}
             onResync={() => onResync(spec.id)}
             onFit={() => onFit(spec.id)}
-            proposal={proposals?.get(spec.id)}
-            onAcceptProposal={onAcceptProposal}
-            onRejectProposal={onRejectProposal}
           />
         );
       })}

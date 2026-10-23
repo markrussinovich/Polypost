@@ -39,10 +39,11 @@ export function HelpContent({ webApp = false }: { webApp?: boolean }) {
             pasted text. Sources are context only — they're never posted. Click a pasted source to edit it inline; an
             untitled paste is named automatically when AI is configured.
           </li>
-          <li>Use "Suggest AI changes" on a card to propose a rewrite for that platform on demand.</li>
+          <li>Use "Suggest AI changes" on a card to adapt that platform on demand. Platform previews update directly without tracked changes.</li>
           <li>
-            With auto-fit on, suggestions for over-limit platforms appear about 3 seconds after you stop typing.
-            Changes appear in place in the editor or card. Each change has a checkmark to accept and an X to reject.
+            With auto-fit on, over-limit platforms adapt about 3 seconds after you stop typing.
+            Tracked changes appear only in the main draft. Left- or right-click a change to open its Accept/Reject menu;
+            keyboard users can focus a change and press Enter or Shift+F10.
             You can edit text directly; the final decision applies the result automatically. Accept All and Reject All
             resolve the remaining changes. Initial drafts start unmarked and apply automatically. A warning identifies
             any suggestion mechanically cut to fit.

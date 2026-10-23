@@ -251,7 +251,7 @@ export function AiAssist({ ready, busy, error, onSubmit, onOpenSettings, hasDraf
   }
 
   return (
-    <div className="ai-assist">
+    <div className={`ai-assist${busy ? ' is-busy' : ''}`} aria-busy={busy}>
       <form className="ai-assist-form" onSubmit={handleSubmit}>
         <div className="ai-assist-row">
           <Sparkles aria-hidden="true" size={16} className="ai-assist-icon" />
@@ -268,7 +268,7 @@ export function AiAssist({ ready, busy, error, onSubmit, onOpenSettings, hasDraf
             }}
             onKeyDown={handleKeyDown}
           />
-          {busy ? <span role="status">Working...</span> : null}
+          {busy ? <span className="sr-only" role="status">Generating draft</span> : null}
         </div>
         {hasDraft ? (
           <div className="ai-suggestions">

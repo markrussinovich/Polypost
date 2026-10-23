@@ -9,8 +9,6 @@ import { copyImageToClipboard, type Attachment, type LinkPreview } from '../lib/
 import type { PlatformRender, PlatformSpec } from '../lib/platforms/types';
 import { collapseToPreview, isTextTruncated, type PreviewMode } from '../lib/truncation';
 import { CardImagePreview, CardLinkPreview } from './CardLinkPreview';
-import { AiReview } from './AiReview';
-import type { AiProposal } from '../lib/ai/review';
 import { CharacterMeter } from './CharacterMeter';
 import { PaneEditor } from './PaneEditor';
 import { PLATFORM_ICONS } from './platformIcons';
@@ -39,9 +37,6 @@ interface PlatformCardProps {
   onPaneChange: (document: EditorNode) => void;
   onResync: () => void;
   onFit: () => void;
-  proposal?: AiProposal;
-  onAcceptProposal?: (key: string, proposal: AiProposal, document?: EditorNode) => Promise<void>;
-  onRejectProposal?: (key: string) => void;
 }
 
 type CopyFlash = 'idle' | 'copied' | 'error';
@@ -65,9 +60,6 @@ export function PlatformCard({
   onPaneChange,
   onResync,
   onFit,
-  proposal,
-  onAcceptProposal,
-  onRejectProposal,
 }: PlatformCardProps) {
   const Icon = PLATFORM_ICONS[spec.id];
 
@@ -220,7 +212,7 @@ export function PlatformCard({
               <RotateCcw aria-hidden="true" size={15} />
             </button>
           ) : null}
-          {proposal && !isEditing ? null : isEditing ? (
+          {isEditing ? (
             <button type="button" className="card-icon-button is-done" title="Done editing" aria-label={`Done editing ${spec.label}`} onClick={onStopEditing}>
               <Check aria-hidden="true" size={15} />
             </button>
@@ -241,13 +233,6 @@ export function PlatformCard({
             initialContent={document}
             ariaLabel={`${spec.label} post editor`}
             onChange={onPaneChange}
-          />
-        ) : proposal && onAcceptProposal && onRejectProposal ? (
-          <AiReview
-            proposal={proposal}
-            busy={isGenerating}
-            onAccept={(document) => onAcceptProposal(spec.id, proposal, document)}
-            onReject={() => onRejectProposal(spec.id)}
           />
         ) : (
           <p className="platform-card-text" onDoubleClick={onStartEditing}>
