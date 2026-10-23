@@ -45,6 +45,7 @@ export interface LinkCardStyle {
 
 export interface PlatformCapabilities {
   copy: true;
+  threads?: true;
   imageAttachments?: true;
   openComposer?: OpenComposerCapability;
   // publish?: PublishCapability;  // future: post via API; impl in src/lib/publishing/

@@ -121,7 +121,7 @@ interface TokenRange {
   end: number;
 }
 
-function urlTokenRanges(normalized: string): TokenRange[] {
+export function urlTokenRanges(normalized: string): TokenRange[] {
   const ranges: TokenRange[] = [];
 
   for (const match of normalized.matchAll(new RegExp(URL_PATTERN.source, 'gu'))) {
@@ -163,7 +163,7 @@ function weightOfRange(text: string): number {
   return total;
 }
 
-function graphemeClusters(text: string): string[] {
+export function graphemeClusters(text: string): string[] {
   if (!graphemeSegmenter) {
     return Array.from(text);
   }

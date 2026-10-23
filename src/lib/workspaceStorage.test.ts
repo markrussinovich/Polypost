@@ -23,6 +23,7 @@ describe('workspace storage', () => {
       overrides: { x: makeDoc('X variant') },
       enabledPlatforms: ['linkedin', 'x', 'bluesky'] as const,
       aiVersions: { bluesky: makeDoc('Accepted AI version') },
+      threads: { x: { numbered: true, posts: [{ id: 'a', text: 'First' }, { id: 'b', text: 'Second' }] } },
     };
 
     expect(saveWorkspace({ ...input, enabledPlatforms: [...input.enabledPlatforms] }).ok).toBe(true);
@@ -32,6 +33,7 @@ describe('workspace storage', () => {
     expect(workspace?.overrides.x).toEqual(input.overrides.x);
     expect(workspace?.enabledPlatforms).toEqual(['linkedin', 'x', 'bluesky']);
     expect(workspace?.aiVersions).toEqual(input.aiVersions);
+    expect(workspace?.threads).toEqual(input.threads);
   });
 
   it('migrates a legacy v1 draft into a v2 workspace without destroying the legacy key', () => {
@@ -69,6 +71,15 @@ describe('workspace storage', () => {
     expect(workspace).toBeNull();
     expect(error).not.toBeNull();
   });
+
+  it('rejects malformed stored threads without silently discarding them', () => {
+    window.localStorage.setItem(WORKSPACE_KEY, JSON.stringify({
+      version: 2, master: makeDoc('Master'), overrides: {}, enabledPlatforms: ['x'],
+      threads: { x: { numbered: true, posts: [{ id: 'a', text: 3 }] } },
+    }));
+    expect(loadWorkspace().workspace).toBeNull();
+    expect(loadWorkspace().error).toMatch(/could not be read/);
+  });
 });
 
 describe('draft snapshots with platform customizations', () => {
@@ -80,11 +91,13 @@ describe('draft snapshots with platform customizations', () => {
     saveDraftSnapshot(makeDoc('Master'), 'Launch', 6, {
       overrides: { x: makeDoc('X variant') },
       enabledPlatforms: ['linkedin', 'x'],
+      threads: { x: { numbered: false, posts: [{ id: 'thread', text: 'Thread text' }] } },
     });
 
     const [restored] = loadDraftHistory();
     expect(restored.overrides?.x).toEqual(makeDoc('X variant'));
     expect(restored.enabledPlatforms).toEqual(['linkedin', 'x']);
+    expect(restored.threads?.x?.posts[0].text).toBe('Thread text');
   });
 
   it('still loads legacy snapshots that predate platform fields', () => {

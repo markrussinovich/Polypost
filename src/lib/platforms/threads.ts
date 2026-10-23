@@ -15,6 +15,7 @@ export const threadsSpec: PlatformSpec = {
   truncationLabel: '... more',
   capabilities: {
     copy: true,
+    threads: true,
     imageAttachments: true,
     // Threads migrated to threads.com (April 2025); threads.net still redirects.
     openComposer: {

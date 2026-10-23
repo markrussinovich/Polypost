@@ -274,6 +274,7 @@ describe('App URL preview fetching', () => {
     await act(async () => { vi.advanceTimersByTime(3000); });
     const card = screen.getByLabelText('X preview');
     expect(within(card).queryByRole('region', { name: 'Tracked changes for X' })).toBeNull();
+    expect(within(card).getByRole('button', { name: 'Split into a thread' })).toBeDisabled();
     fireEvent.contextMenu(screen.getByRole('group', { name: 'Change 1' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Reject change' }));
     fireEvent.click(screen.getByRole('group', { name: 'Change 1' }));
@@ -283,8 +284,10 @@ describe('App URL preview fetching', () => {
     expect(screen.getByLabelText('Mock post editor')).toHaveValue('My old post!');
     await act(async () => { vi.advanceTimersByTime(2999); });
     expect(card.querySelector('.platform-card-text')).toHaveTextContent('My old post.');
+    expect(within(card).getByRole('button', { name: 'Split into a thread' })).toBeDisabled();
     await act(async () => { vi.advanceTimersByTime(1); });
     expect(card.querySelector('.platform-card-text')).toHaveTextContent('My old post!');
+    expect(within(card).getByRole('button', { name: 'Split into a thread' })).toBeEnabled();
   });
 
   it('pauses platform adaptation during generation and review, then restarts the full idle delay', async () => {
@@ -418,6 +421,127 @@ describe('App URL preview fetching', () => {
     expect(screen.getByText(/Recovery checkpoint failed: Storage full/)).toBeInTheDocument();
     expect(JSON.parse(window.localStorage.getItem('omnipost:workspace-v2')!).aiVersions?.x).toBeUndefined();
     expect(screen.getByRole('button', { name: 'Retry save' })).toBeEnabled();
+  });
+
+  it('splits the full draft instead of its shortened AI variant and protects the thread from further adaptation', async () => {
+    render(<App />);
+    const original = 'Keep the full message, not a summary. '.repeat(20).trim();
+    fireEvent.change(screen.getByLabelText('Mock post editor'), { target: { value: original } });
+    saveAiSettings('Friendly');
+    await act(async () => {});
+    const card = screen.getByLabelText('X preview');
+    expect(card.querySelector('.platform-card-text')).toHaveTextContent('Adapted');
+    fireEvent.click(within(card).getByRole('button', { name: 'Split into a thread' }));
+    const posts = within(card).getAllByRole<HTMLTextAreaElement>('textbox');
+    expect(posts.length).toBeGreaterThan(1);
+    expect(card).not.toHaveClass('is-over');
+    expect(posts.map((post) => post.value).join(' ').replace(/\s+/g, ' ')).toBe(original);
+    expect(within(card).queryByRole('button', { name: 'Copy & open' })).toBeNull();
+    expect(within(card).queryByRole('button', { name: 'Suggest AI changes for X' })).toBeNull();
+    vi.mocked(generateFit).mockClear();
+    fireEvent.change(screen.getByLabelText('Mock post editor'), { target: { value: 'Updated main draft' } });
+    await act(async () => { vi.advanceTimersByTime(3000); });
+    expect(vi.mocked(generateFit).mock.calls.map(([options]) => options.spec.id).sort()).toEqual(['bluesky', 'linkedin']);
+    expect(within(card).getAllByRole<HTMLTextAreaElement>('textbox').map((post) => post.value).join(' ').replace(/\s+/g, ' ')).toBe(original);
+  });
+
+  it('persists thread edits, ordering and numbering through reload, saved drafts, hidden platforms and restore', async () => {
+    const app = render(<App />);
+    fireEvent.change(screen.getByLabelText('Mock post editor'), { target: { value: 'A full draft. '.repeat(50) } });
+    const card = screen.getByLabelText('X preview');
+    fireEvent.click(within(card).getByRole('button', { name: 'Split into a thread' }));
+    fireEvent.change(within(card).getByRole('textbox', { name: 'X post 1 text' }), { target: { value: 'Edited first segment' } });
+    fireEvent.click(within(card).getByRole('button', { name: 'Move post 1 down' }));
+    fireEvent.click(within(card).getByRole('checkbox', { name: 'Number posts' }));
+    const stored = JSON.parse(window.localStorage.getItem('omnipost:workspace-v2')!);
+    expect(stored.threads.x.posts[1].text).toBe('Edited first segment');
+    expect(stored.threads.x.numbered).toBe(false);
+    app.unmount();
+    render(<App />);
+    expect(screen.getByRole('textbox', { name: 'X post 2 text' })).toHaveValue('Edited first segment');
+    const chips = screen.getByRole('group', { name: 'Platforms to preview' });
+    fireEvent.click(within(chips).getByRole('button', { name: /^X/ }));
+    expect(screen.queryByLabelText('X preview')).toBeNull();
+    expect(within(chips).getByLabelText('Has a saved customization')).toBeInTheDocument();
+    fireEvent.click(within(chips).getByRole('button', { name: /^X/ }));
+    expect(screen.getByRole('textbox', { name: 'X post 2 text' })).toHaveValue('Edited first segment');
+    await act(async () => {});
+    fireEvent.click(screen.getByText('Saved drafts'));
+    fireEvent.change(screen.getByLabelText('Draft name'), { target: { value: 'Thread launch' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save draft' })); });
+    expect(library.drafts.find((draft) => draft.kind === 'draft')?.threads).toEqual(stored.threads);
+    fireEvent.click(screen.getByRole('button', { name: 'Re-sync X from the master draft' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('thread');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Re-sync' })); });
+    expect(screen.queryByRole('group', { name: 'X thread' })).toBeNull();
+    expect(library.drafts.some((draft) => draft.kind === 'recovery' && draft.threads?.x?.posts[1].text === 'Edited first segment')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+    const restore = screen.getAllByRole('button', { name: 'Restore' });
+    await act(async () => { fireEvent.click(restore[restore.length - 1]); });
+    expect(screen.getByRole('textbox', { name: 'X post 2 text' })).toHaveValue('Edited first segment');
+    expect(screen.getByRole('checkbox', { name: 'Number posts' })).not.toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Mock reset' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reset' })); });
+    expect(screen.queryByRole('group', { name: 'X thread' })).toBeNull();
+    expect(JSON.parse(window.localStorage.getItem('omnipost:workspace-v2')!).threads).toEqual({});
+  });
+
+  it('does not let an in-flight AI fit overwrite a newly created thread', async () => {
+    window.localStorage.setItem('omnipost:workspace-v2', JSON.stringify({
+      version: 2, master: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Original full content' }] }] },
+      overrides: {}, enabledPlatforms: ['x'],
+    }));
+    let resolveFit!: (result: Awaited<ReturnType<typeof generateFit>>) => void;
+    vi.mocked(generateFit).mockReturnValueOnce(new Promise((resolve) => { resolveFit = resolve; }));
+    render(<App />);
+    saveAiSettings('Friendly');
+    fireEvent.click(screen.getByRole('button', { name: 'Split into a thread' }));
+    await act(async () => {
+      resolveFit({
+        doc: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Stale fit' }] }] },
+        text: 'Stale fit', count: 9, withinLimit: true, attempts: 1, truncated: false,
+      });
+    });
+    expect(screen.getByRole('textbox', { name: 'X post 1 text' })).toHaveValue('Original full content');
+    expect(JSON.parse(window.localStorage.getItem('omnipost:workspace-v2')!).aiVersions.x).toBeUndefined();
+    vi.mocked(generateFit).mockClear();
+    await act(async () => { vi.advanceTimersByTime(10000); });
+    expect(generateFit).not.toHaveBeenCalled();
+  });
+
+  it('uses a platform customization as the thread source and supports only X, Bluesky and Threads', async () => {
+    const document = (text: string): EditorNode => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
+    window.localStorage.setItem('omnipost:workspace-v2', JSON.stringify({
+      version: 2, master: document('Master'), overrides: { x: document('Custom X source') },
+      enabledPlatforms: ['linkedin', 'x', 'bluesky', 'threads', 'mastodon', 'facebook', 'instagram'],
+    }));
+    render(<App />);
+    expect(screen.getAllByRole('button', { name: 'Split into a thread' })).toHaveLength(3);
+    fireEvent.click(within(screen.getByLabelText('X preview')).getByRole('button', { name: 'Split into a thread' }));
+    expect(screen.getByRole('textbox', { name: 'X post 1 text' })).toHaveValue('Custom X source');
+    expect(screen.getByLabelText('Mock post editor')).toHaveValue('Master');
+    fireEvent.click(within(screen.getByLabelText('Bluesky preview')).getByRole('button', { name: 'Split into a thread' }));
+    expect(screen.getByRole('textbox', { name: 'Bluesky post 1 text' })).toHaveValue('Master');
+    fireEvent.click(within(screen.getByLabelText('Threads preview')).getByRole('button', { name: 'Split into a thread' }));
+    expect(screen.getByRole('textbox', { name: 'Threads post 1 text' })).toHaveValue('Master');
+    await act(async () => {});
+  });
+
+  it('fetches previews for each thread post instead of the inactive single-post version', async () => {
+    window.localStorage.setItem('omnipost:workspace-v2', JSON.stringify({
+      version: 2, master: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'https://example.test/inactive' }] }] },
+      overrides: {}, enabledPlatforms: ['x'],
+      threads: { x: { numbered: true, posts: [{ id: 'a', text: 'https://example.test/first' }, { id: 'b', text: 'https://example.test/second' }] } },
+    }));
+    render(<App />);
+    await act(async () => { vi.advanceTimersByTime(2999); });
+    expect(fetch).not.toHaveBeenCalled();
+    await act(async () => { vi.advanceTimersByTime(1); });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url))).toEqual([
+      'https://api.microlink.io/?screenshot=true&url=https%3A%2F%2Fexample.test%2Ffirst',
+      'https://api.microlink.io/?screenshot=true&url=https%3A%2F%2Fexample.test%2Fsecond',
+    ]);
   });
 
   it('discards an automatic suggestion if its accepted baseline was re-synced while it was generating', async () => {

@@ -25,6 +25,19 @@ export function HelpContent({ webApp = false }: { webApp?: boolean }) {
         </ul>
       </section>
 
+      {webApp ? (
+      <section className="help-section">
+        <h3>Threaded posts</h3>
+        <ul className="help-list">
+          <li>Choose "Split into a thread" on X, Bluesky, or Threads. It uses the platform-specific edit if present, otherwise the full main draft, not a shortened AI version. AI is not required.</li>
+          <li>Splitting prefers paragraph, sentence, and word boundaries without breaking URLs or emoji. Each post has its own character count, including optional numbering. Long URLs and over-limit edits are flagged rather than truncated.</li>
+          <li>Edit, reorder, add, or remove posts. "Number posts" updates the numbering automatically. Threads are customized: later master edits and AI adaptation do not replace them. Re-sync removes the thread after confirmation.</li>
+          <li>Use "Copy post" and publish each segment manually as a reply to the previous post. "Copy entire thread" is a reference copy with separators, not a single publishable post. The shared image is available separately; add it to the post you choose.</li>
+          <li>Thread text, order, and numbering survive reloads and are included in saved drafts, recovery checkpoints, search, and backups.</li>
+        </ul>
+      </section>
+      ) : null}
+
       <section className="help-section">
         <h3>AI assistant (optional)</h3>
         <ul className="help-list">

@@ -4,6 +4,7 @@ import type { EditorNode } from './exportText';
 import {
   applyMasterEdit,
   applyPaneEdit,
+  applyThreadEdit,
   documentFor,
   dormantPlatforms,
   isForked,
@@ -71,5 +72,20 @@ describe('workspace fork-on-edit helpers', () => {
   it('toggling a platform on appends it without disturbing overrides', () => {
     const ws = togglePlatform(baseWorkspace(), 'bluesky');
     expect(ws.enabledPlatforms).toEqual(['linkedin', 'x', 'bluesky']);
+  });
+
+  it('keeps a customized thread through master edits and platform toggles, and clears it on resync', () => {
+    const thread = { numbered: true, posts: [{ id: 'a', text: 'Thread text' }] };
+    let ws = applyThreadEdit(baseWorkspace(), 'x', thread);
+    expect(isForked(ws, 'x')).toBe(true);
+    ws = applyMasterEdit(ws, makeDoc('New master'));
+    expect(ws.threads?.x).toEqual(thread);
+    ws = togglePlatform(ws, 'x');
+    expect(dormantPlatforms(ws)).toEqual(['x']);
+    ws = togglePlatform(ws, 'x');
+    expect(ws.threads?.x).toEqual(thread);
+    ws = resyncPlatform(ws, 'x');
+    expect(ws.threads?.x).toBeUndefined();
+    expect(isForked(ws, 'x')).toBe(false);
   });
 });

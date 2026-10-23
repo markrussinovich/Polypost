@@ -40,6 +40,7 @@ export function DraftHistoryPanel({ drafts, activeDraftId, onDelete, onRestore, 
       draft.title, docToPlainText(draft.document),
       ...Object.values(draft.overrides ?? {}).map(docToPlainText),
       ...Object.values(draft.aiVersions ?? {}).map(docToPlainText),
+      ...Object.values(draft.threads ?? {}).flatMap((thread) => thread.posts.map((post) => post.text)),
     ].join(' ').toLocaleLowerCase();
     return haystack.includes(search.trim().toLocaleLowerCase());
   });
@@ -85,7 +86,7 @@ export function DraftHistoryPanel({ drafts, activeDraftId, onDelete, onRestore, 
             />
           </label>
         </div>
-        <p className="modal-hint">Backups include all drafts, recovery history, current text, variants, sources, and attachments. API keys and AI settings are excluded. Imports add drafts without replacing anything.</p>
+        <p className="modal-hint">Backups include all drafts, recovery history, current text, variants, threads, sources, and attachments. API keys and AI settings are excluded. Imports add drafts without replacing anything.</p>
         </>
         ) : null}
         <label className="draft-title-field">

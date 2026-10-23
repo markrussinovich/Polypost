@@ -11,6 +11,7 @@ const drafts: LibraryDraft[] = [
   {
     id: 'named', kind: 'draft', title: 'Launch', document, createdAt: 1, updatedAt: 2, characterCount: 6,
     overrides: { x: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Unique platform detail' }] }] } },
+    threads: { bluesky: { numbered: false, posts: [{ id: 'a', text: 'Unique thread detail' }] } },
   },
   { id: 'recovery', kind: 'recovery', title: 'Before AI', document, createdAt: 1, updatedAt: 1, characterCount: 6 },
 ];
@@ -24,6 +25,8 @@ describe('draft library panel', () => {
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Unique platform detail' } });
     expect(screen.getByText('Launch')).toBeInTheDocument();
     expect(screen.queryByText('Before AI')).toBeNull();
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Unique thread detail' } });
+    expect(screen.getByText('Launch')).toBeInTheDocument();
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: /Recovery history/ }));
     expect(screen.getByText('Before AI')).toBeInTheDocument();

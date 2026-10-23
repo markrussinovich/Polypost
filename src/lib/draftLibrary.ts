@@ -7,6 +7,7 @@ import type { EditorNode } from './exportText';
 import type { StoredAttachment } from './media';
 import { PLATFORMS_BY_ID } from './platforms';
 import type { PlatformId } from './platforms/types';
+import { parsePlatformThreads } from './postThreads';
 
 const DB_NAME = 'polypost-draft-library';
 const STORE = 'snapshots';
@@ -19,7 +20,7 @@ export interface LibraryDraft extends DraftSnapshot {
 }
 
 export type SnapshotContent = Pick<DraftSnapshot,
-  'document' | 'overrides' | 'aiVersions' | 'enabledPlatforms' | 'sources' | 'attachments' | 'characterCount'>;
+  'document' | 'overrides' | 'aiVersions' | 'threads' | 'enabledPlatforms' | 'sources' | 'attachments' | 'characterCount'>;
 
 export function createLibraryDraft(
   content: SnapshotContent,
@@ -151,7 +152,7 @@ export function parseLibraryBackup(text: string): LibraryDraft[] {
   try {
     return payload.drafts.map(parseDraft);
   } catch {
-    throw new Error('The backup contains an invalid draft, source, or attachment. Nothing was imported.');
+    throw new Error('The backup contains an invalid draft, thread, source, or attachment. Nothing was imported.');
   }
 }
 
@@ -266,6 +267,7 @@ function parseDraft(value: unknown): LibraryDraft {
     document: document(value.document),
     overrides: documents(value.overrides),
     aiVersions: documents(value.aiVersions),
+    threads: value.threads === undefined ? undefined : parsePlatformThreads(value.threads),
     enabledPlatforms: Array.isArray(value.enabledPlatforms) ? value.enabledPlatforms.map(platform) : undefined,
     sources: Array.isArray(value.sources) ? value.sources.map(source) : undefined,
     attachments: Array.isArray(value.attachments) ? value.attachments.map(attachment) : undefined,

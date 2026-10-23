@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Copy, ExternalLink, Loader, Pencil, RotateCcw, Sparkles } from 'lucide-react';
+import { AlertTriangle, Check, Copy, ExternalLink, ListOrdered, Loader, Pencil, RotateCcw, Sparkles } from 'lucide-react';
 
 import { copyLinkedInText, copyPlainText } from '../lib/clipboard';
 import { exportText, type EditorNode } from '../lib/exportText';
@@ -7,11 +7,13 @@ import { lastUrlInText } from '../lib/linkPreview';
 import { parseMentionSegments } from '../lib/mentions';
 import { copyImageToClipboard, type Attachment, type LinkPreview } from '../lib/media';
 import type { PlatformRender, PlatformSpec } from '../lib/platforms/types';
+import { renderThreadPost, type PostThread } from '../lib/postThreads';
 import { collapseToPreview, isTextTruncated, type PreviewMode } from '../lib/truncation';
 import { CardImagePreview, CardLinkPreview } from './CardLinkPreview';
 import { CharacterMeter } from './CharacterMeter';
 import { PaneEditor } from './PaneEditor';
 import { PLATFORM_ICONS } from './platformIcons';
+import { ThreadEditor } from './ThreadEditor';
 
 interface PlatformCardProps {
   spec: PlatformSpec;
@@ -37,6 +39,11 @@ interface PlatformCardProps {
   onPaneChange: (document: EditorNode) => void;
   onResync: () => void;
   onFit: () => void;
+  thread?: PostThread;
+  threadSource?: string;
+  threadingPaused?: boolean;
+  onSplitThread?: () => void;
+  onThreadChange?: (thread: PostThread) => void;
 }
 
 type CopyFlash = 'idle' | 'copied' | 'error';
@@ -60,6 +67,11 @@ export function PlatformCard({
   onPaneChange,
   onResync,
   onFit,
+  thread,
+  threadSource,
+  threadingPaused = false,
+  onSplitThread,
+  onThreadChange,
 }: PlatformCardProps) {
   const Icon = PLATFORM_ICONS[spec.id];
 
@@ -78,7 +90,7 @@ export function PlatformCard({
     const config = spec.truncation?.[mode];
     return config ? isTextTruncated(render.text, config) : false;
   });
-  const showModeToggle = truncationModes.length > 1 && anyModeTruncates && !isEditing;
+  const showModeToggle = truncationModes.length > 1 && anyModeTruncates && !isEditing && !thread;
 
   const hasText = Boolean(render.text.trim());
   const showCollapsed = truncated && !expanded && activeCutoff !== null;
@@ -91,6 +103,9 @@ export function PlatformCard({
     () => (!imagePreviewAttachment && spec.linkPreview ? lastUrlInText(render.text) : undefined),
     [imagePreviewAttachment, render.text, spec.linkPreview],
   );
+  const cardStatus = thread
+    ? thread.posts.some((_, index) => renderThreadPost(thread, index, spec).summary.status === 'over') ? 'over' : 'normal'
+    : render.summary.status;
 
   // The pane editor's identity for this editing session. A non-forked pane
   // reseeds (remounts) when the master changes, but the first keystroke in it
@@ -173,7 +188,7 @@ export function PlatformCard({
   }
 
   return (
-    <article className={`platform-card is-${spec.id} is-${render.summary.status}${isForked ? ' is-forked' : ''}${isAiAdapted ? ' is-ai' : ''}`} aria-label={`${spec.label} preview`}>
+    <article className={`platform-card is-${spec.id} is-${cardStatus}${isForked ? ' is-forked' : ''}${isAiAdapted ? ' is-ai' : ''}`} aria-label={`${spec.label} preview`}>
       <header className="platform-card-header">
         <span className="platform-card-brand" style={{ color: spec.brandColor }}>
           <Icon size={18} />
@@ -194,6 +209,7 @@ export function PlatformCard({
             </span>
           ) : null}
           {isForked ? <span className="platform-card-badge">Customized</span> : null}
+          {thread ? <span className="platform-card-badge">Thread</span> : null}
           {!isForked && isAiAdapted ? <span className="platform-card-badge is-ai">AI</span> : null}
           {isGenerating ? (
             <span className="platform-card-badge is-generating">
@@ -202,17 +218,17 @@ export function PlatformCard({
           ) : null}
         </span>
         <span className="platform-card-actions">
-          {aiReady && !isEditing ? (
+          {aiReady && !isEditing && !thread ? (
             <button type="button" className="card-icon-button card-ai-button" title={`Suggest AI changes for ${spec.label}`} aria-label={`Suggest AI changes for ${spec.label}`} disabled={isGenerating} onClick={onFit}>
               <Sparkles aria-hidden="true" size={15} />
             </button>
           ) : null}
-          {isForked || isAiAdapted ? (
+          {isForked || isAiAdapted || thread ? (
             <button type="button" className="card-icon-button" title="Re-sync from master draft" aria-label={`Re-sync ${spec.label} from the master draft`} onClick={onResync}>
               <RotateCcw aria-hidden="true" size={15} />
             </button>
           ) : null}
-          {isEditing ? (
+          {!thread && (isEditing ? (
             <button type="button" className="card-icon-button is-done" title="Done editing" aria-label={`Done editing ${spec.label}`} onClick={onStopEditing}>
               <Check aria-hidden="true" size={15} />
             </button>
@@ -220,72 +236,96 @@ export function PlatformCard({
             <button type="button" className="card-icon-button" title={`Edit for ${spec.label}`} aria-label={`Edit the post for ${spec.label}`} onClick={onStartEditing}>
               <Pencil aria-hidden="true" size={14} />
             </button>
-          )}
+          ))}
         </span>
       </header>
 
-      <div className={`platform-card-body${!isEditing && showModeToggle ? ` is-${previewMode}` : ''}`}>
-        {isEditing ? (
-          <PaneEditor
-            // Forked panes never remount on master edits; non-forked panes
-            // reseed from the updated master via the version key.
-            key={paneKey}
-            initialContent={document}
-            ariaLabel={`${spec.label} post editor`}
-            onChange={onPaneChange}
-          />
-        ) : (
-          <p className="platform-card-text" onDoubleClick={onStartEditing}>
-            {hasText ? (
-              <>
-                {renderMentionText(displayText, mentionStrings)}
-                {truncated ? (
-                  <button type="button" className="platform-card-seemore" onClick={() => setExpanded((value) => !value)}>
-                    {expanded ? ' less...' : ` ${spec.truncationLabel || 'more...'}`}
-                  </button>
-                ) : null}
-              </>
+      {thread && onThreadChange ? (
+        <>
+          <ThreadEditor spec={spec} thread={thread} onChange={onThreadChange} linkPreviews={linkPreviews} showLinkPreviews={!imagePreviewAttachment} />
+          {imagePreviewAttachment ? (
+            <>
+              <CardImagePreview image={imagePreviewAttachment} spec={spec} />
+              <footer className="platform-card-buttons">
+                <button type="button" className="card-copy-button" onClick={handleCopyImage}>
+                  <Copy aria-hidden="true" size={15} />
+                  {imageCopyFlash === 'copied' ? 'Image copied!' : imageCopyFlash === 'error' ? 'Copy image failed' : 'Copy image'}
+                </button>
+              </footer>
+            </>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <div className={`platform-card-body${!isEditing && showModeToggle ? ` is-${previewMode}` : ''}`}>
+            {isEditing ? (
+              <PaneEditor
+                // Forked panes never remount on master edits; non-forked panes
+                // reseed from the updated master via the version key.
+                key={paneKey}
+                initialContent={document}
+                ariaLabel={`${spec.label} post editor`}
+                onChange={onPaneChange}
+              />
             ) : (
-              <span className="platform-card-placeholder">Your {spec.label} post will appear here.</span>
+              <p className="platform-card-text" onDoubleClick={onStartEditing}>
+                {hasText ? (
+                  <>
+                    {renderMentionText(displayText, mentionStrings)}
+                    {truncated ? (
+                      <button type="button" className="platform-card-seemore" onClick={() => setExpanded((value) => !value)}>
+                        {expanded ? ' less...' : ` ${spec.truncationLabel || 'more...'}`}
+                      </button>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="platform-card-placeholder">Your {spec.label} post will appear here.</span>
+                )}
+              </p>
             )}
-          </p>
-        )}
-      </div>
+          </div>
 
-      {!isEditing && imagePreviewAttachment ? <CardImagePreview image={imagePreviewAttachment} spec={spec} /> : null}
-      {!isEditing && !imagePreviewAttachment && previewUrl ? <CardLinkPreview url={previewUrl} preview={linkPreviews.get(previewUrl)} spec={spec} /> : null}
+          {!isEditing && imagePreviewAttachment ? <CardImagePreview image={imagePreviewAttachment} spec={spec} /> : null}
+          {!isEditing && !imagePreviewAttachment && previewUrl ? <CardLinkPreview url={previewUrl} preview={linkPreviews.get(previewUrl)} spec={spec} /> : null}
 
-      {render.warnings.length > 0 ? (
-        <ul className="platform-card-warnings">
-          {render.warnings.map((warning) => (
-            <li key={warning.id} className="platform-card-warning">
-              <AlertTriangle aria-hidden="true" size={14} />
-              <span>{warning.message}</span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+          {render.warnings.length > 0 ? (
+            <ul className="platform-card-warnings">
+              {render.warnings.map((warning) => (
+                <li key={warning.id} className="platform-card-warning">
+                  <AlertTriangle aria-hidden="true" size={14} />
+                  <span>{warning.message}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
 
-      <CharacterMeter summary={render.summary} disclaimer={spec.disclaimer} />
+          <CharacterMeter summary={render.summary} disclaimer={spec.disclaimer} />
 
-      <footer className="platform-card-buttons">
-        {imagePreviewAttachment ? (
-          <button type="button" className="card-copy-button" onClick={handleCopyImage}>
-            <Copy aria-hidden="true" size={15} />
-            {imageCopyFlash === 'copied' ? 'Image copied!' : imageCopyFlash === 'error' ? 'Copy image failed' : 'Copy image'}
-          </button>
-        ) : null}
-        <button type="button" className="card-copy-button" disabled={!hasText} onClick={handleCopy}>
-          <Copy aria-hidden="true" size={15} />
-          {copyFlash === 'copied' ? 'Copied!' : copyFlash === 'error' ? 'Copy failed' : 'Copy'}
-        </button>
-        {spec.capabilities.openComposer ? (
-          <button type="button" className="card-copy-button" disabled={!hasText} onClick={handleCopyAndOpen}>
-            <ExternalLink aria-hidden="true" size={15} />
-            Copy &amp; open
-          </button>
-        ) : null}
-      </footer>
+          <footer className="platform-card-buttons">
+            {spec.capabilities.threads && onSplitThread ? (
+              <button type="button" className="card-copy-button" disabled={threadingPaused || isEditing || !(threadSource ?? render.text).trim()} onClick={onSplitThread}>
+                <ListOrdered aria-hidden="true" size={15} /> Split into a thread
+              </button>
+            ) : null}
+            {imagePreviewAttachment ? (
+              <button type="button" className="card-copy-button" onClick={handleCopyImage}>
+                <Copy aria-hidden="true" size={15} />
+                {imageCopyFlash === 'copied' ? 'Image copied!' : imageCopyFlash === 'error' ? 'Copy image failed' : 'Copy image'}
+              </button>
+            ) : null}
+            <button type="button" className="card-copy-button" disabled={!hasText} onClick={handleCopy}>
+              <Copy aria-hidden="true" size={15} />
+              {copyFlash === 'copied' ? 'Copied!' : copyFlash === 'error' ? 'Copy failed' : 'Copy'}
+            </button>
+            {spec.capabilities.openComposer ? (
+              <button type="button" className="card-copy-button" disabled={!hasText} onClick={handleCopyAndOpen}>
+                <ExternalLink aria-hidden="true" size={15} />
+                Copy &amp; open
+              </button>
+            ) : null}
+          </footer>
+        </>
+      )}
     </article>
   );
 }

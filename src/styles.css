@@ -832,6 +832,7 @@ h2 {
 
 .platform-card-buttons {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 14px;
@@ -1598,6 +1599,81 @@ h2 {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.post-thread {
+  padding: 12px;
+}
+
+.post-thread-toolbar,
+.post-thread-post-header,
+.post-thread-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.post-thread-hint {
+  margin: 8px 0 12px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.post-thread-list {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.post-thread-post {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.post-thread-post.is-over {
+  border-color: var(--danger);
+}
+
+.post-thread-post-header label {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.post-thread-post textarea {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.post-thread-number {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}
+
+.post-thread-post .character-meter {
+  padding: 8px 0;
+}
+
+.post-thread-error {
+  color: var(--danger);
+  font-size: 0.8rem;
 }
 
 .ai-undo-bar,

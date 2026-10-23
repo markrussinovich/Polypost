@@ -19,6 +19,7 @@ function draft(title = 'Launch'): LibraryDraft {
     document: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Master draft' }] }] },
     overrides: { x: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Custom X' }] }] } },
     aiVersions: { bluesky: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Accepted AI' }] }] } },
+    threads: { x: { numbered: true, posts: [{ id: 'a', text: 'Thread first' }, { id: 'b', text: 'Thread second' }] } },
     enabledPlatforms: ['linkedin', 'x', 'bluesky'],
     sources: [{ id: 'source', kind: 'text', title: 'Background', text: 'Reference', charCount: 9, status: 'ready' }],
     attachments: [{ id: 'image', kind: 'image', name: 'image.png', dataUrl: 'data:image/png;base64,aGVsbG8=', mime: 'image/png', size: 5 }],
@@ -93,6 +94,7 @@ describe('durable draft library', () => {
     const imported = entries.find((entry) => entry.id !== original.id && entry.title === original.title)!;
     expect(imported.overrides).toEqual(original.overrides);
     expect(imported.aiVersions).toEqual(original.aiVersions);
+    expect(imported.threads).toEqual(original.threads);
     expect(imported.sources).toEqual(original.sources);
     expect(imported.attachments).toEqual(original.attachments);
   });
@@ -105,6 +107,9 @@ describe('durable draft library', () => {
       { ...draft(), attachments: [{ id: 'bad', kind: 'image', name: 'bad.png', dataUrl: 'not a data URL' }] },
       { ...draft(), enabledPlatforms: ['unknown'] },
       { ...draft(), sources: [{ kind: 'text' }] },
+      { ...draft(), threads: { x: { numbered: true, posts: [] } } },
+      { ...draft(), threads: { linkedin: { numbered: true, posts: [{ id: 'a', text: 'Unsupported' }] } } },
+      { ...draft(), threads: { x: { numbered: true, posts: [{ id: 'a', text: 'One' }, { id: 'a', text: 'Duplicate ID' }] } } },
     ]) {
       await expect(importLibraryBackup(JSON.stringify({
         format: 'polypost-backup', version: 1, drafts: [draft('Valid first entry'), broken],

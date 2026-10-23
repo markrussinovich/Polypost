@@ -14,6 +14,7 @@ export const xSpec: PlatformSpec = {
   truncationLabel: '',
   capabilities: {
     copy: true,
+    threads: true,
     imageAttachments: true,
     openComposer: {
       // x.com is the canonical intent host; twitter.com/intent/tweet still redirects.

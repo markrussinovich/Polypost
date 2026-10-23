@@ -2,6 +2,7 @@ import type { EditorNode } from './exportLinkedInText';
 import type { Source } from './ai/sources';
 import type { StoredAttachment } from './media';
 import type { PlatformId } from './platforms/types';
+import { isPlatformThreads, type PlatformThreads } from './postThreads';
 
 const DRAFT_STORAGE_KEY = 'linkedin-format:draft-v1';
 const DRAFT_HISTORY_KEY = 'linkedin-format:draft-history-v1';
@@ -19,6 +20,7 @@ export interface DraftSnapshot {
   overrides?: Partial<Record<PlatformId, EditorNode>>;
   // Accepted AI-generated per-platform versions. Optional for back-compat.
   aiVersions?: Partial<Record<PlatformId, EditorNode>>;
+  threads?: PlatformThreads;
   enabledPlatforms?: PlatformId[];
   sources?: Source[];
   attachments?: StoredAttachment[];
@@ -30,6 +32,7 @@ export interface StoredWorkspace {
   overrides: Partial<Record<PlatformId, EditorNode>>;
   enabledPlatforms: PlatformId[];
   aiVersions?: Partial<Record<PlatformId, EditorNode>>;
+  threads?: PlatformThreads;
 }
 
 export interface WorkspaceInput {
@@ -37,6 +40,7 @@ export interface WorkspaceInput {
   overrides: Partial<Record<PlatformId, EditorNode>>;
   enabledPlatforms: PlatformId[];
   aiVersions?: Partial<Record<PlatformId, EditorNode>>;
+  threads?: PlatformThreads;
 }
 
 interface LoadWorkspaceResult {
@@ -174,6 +178,7 @@ export function saveWorkspace(input: WorkspaceInput): SaveDraftResult {
       overrides: input.overrides,
       enabledPlatforms: input.enabledPlatforms,
       aiVersions: input.aiVersions,
+      threads: input.threads,
     };
     window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(stored));
     return { ok: true, message: 'Draft saved.' };
@@ -204,6 +209,7 @@ export function loadDraftHistory(): DraftSnapshot[] {
 interface DraftSnapshotExtras {
   overrides?: Partial<Record<PlatformId, EditorNode>>;
   aiVersions?: Partial<Record<PlatformId, EditorNode>>;
+  threads?: PlatformThreads;
   enabledPlatforms?: PlatformId[];
   sources?: Source[];
   attachments?: StoredAttachment[];
@@ -230,6 +236,7 @@ export function saveDraftSnapshot(
       document,
       overrides: extras.overrides,
       aiVersions: extras.aiVersions,
+      threads: extras.threads,
       enabledPlatforms: extras.enabledPlatforms,
       sources: extras.sources,
       attachments: extras.attachments,
@@ -291,7 +298,8 @@ function isStoredWorkspace(value: unknown): value is StoredWorkspace {
     return false;
   }
 
-  return Object.values(candidate.overrides).every(isEditorNode) &&
+  return (candidate.threads === undefined || isPlatformThreads(candidate.threads)) &&
+    Object.values(candidate.overrides).every(isEditorNode) &&
     (candidate.aiVersions === undefined ||
       (typeof candidate.aiVersions === 'object' && candidate.aiVersions !== null &&
         Object.values(candidate.aiVersions).every(isEditorNode)));
@@ -309,6 +317,7 @@ function isDraftSnapshot(value: unknown): value is DraftSnapshot {
     typeof candidate.createdAt === 'number' &&
     typeof candidate.updatedAt === 'number' &&
     typeof candidate.characterCount === 'number' &&
-    isEditorNode(candidate.document)
+    isEditorNode(candidate.document) &&
+    (candidate.threads === undefined || isPlatformThreads(candidate.threads))
   );
 }

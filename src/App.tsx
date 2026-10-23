@@ -37,8 +37,10 @@ import {
   renderForPlatform,
 } from './lib/platforms';
 import type { PlatformId, PlatformRender } from './lib/platforms/types';
+import { renderThreadPost, splitThreadText, type PlatformThreads, type PostThread } from './lib/postThreads';
 import {
   loadWorkspace,
+  createDraftId,
   saveWorkspace,
 } from './lib/storage';
 import {
@@ -53,6 +55,7 @@ import {
 import {
   applyMasterEdit,
   applyPaneEdit,
+  applyThreadEdit,
   dormantPlatforms,
   resyncPlatform,
   togglePlatform,
@@ -81,6 +84,7 @@ function App() {
     master: initialLoad.workspace?.master ?? EMPTY_DOCUMENT,
     overrides: initialLoad.workspace?.overrides ?? {},
     enabledPlatforms: initialLoad.workspace?.enabledPlatforms ?? DEFAULT_ENABLED_PLATFORMS,
+    threads: initialLoad.workspace?.threads ?? {},
   }));
   const [editorVersion, setEditorVersion] = useState(0);
   // Bumped on every master content change; keys non-forked pane editors so they
@@ -257,6 +261,17 @@ function App() {
     return { platformRenders: renders, platformDocuments: documents };
   }, [workspace, displayedVersions, platformBaseline]);
 
+  const threadSources = useMemo(() => {
+    const sources = new Map<PlatformId, string>();
+    for (const id of workspace.enabledPlatforms) {
+      const spec = PLATFORMS_BY_ID[id];
+      if (spec?.capabilities.threads) {
+        sources.set(id, renderForPlatform(workspace.overrides[id] ?? platformBaseline?.master ?? workspace.master, spec).text);
+      }
+    }
+    return sources;
+  }, [workspace, platformBaseline]);
+
   const platformPreviewUrls = useMemo(() => {
     if (imageAttachment) {
       return [];
@@ -267,15 +282,18 @@ function App() {
     for (const id of workspace.enabledPlatforms) {
       const spec = PLATFORMS_BY_ID[id];
       const render = platformRenders.get(id);
-      const url = spec?.linkPreview && render ? lastUrlInText(render.text) : undefined;
-
-      if (url) {
-        urls.add(url);
+      const thread = workspace.threads?.[id];
+      const texts = thread
+        ? thread.posts.map((_, index) => renderThreadPost(thread, index, spec).text)
+        : render ? [render.text] : [];
+      for (const text of texts) {
+        const url = spec?.linkPreview ? lastUrlInText(text) : undefined;
+        if (url) urls.add(url);
       }
     }
 
     return [...urls];
-  }, [imageAttachment, platformRenders, workspace.enabledPlatforms]);
+  }, [imageAttachment, platformRenders, workspace.enabledPlatforms, workspace.threads]);
 
   useEffect(() => {
     if (imageAttachment) {
@@ -321,16 +339,16 @@ function App() {
   }, [debouncedPlatformPreviewUrls, linkPreviews]);
 
   const enabledSpecs = PLATFORMS.filter((spec) => workspace.enabledPlatforms.includes(spec.id));
-  const forkedIds = useMemo(() => new Set(Object.keys(workspace.overrides) as PlatformId[]), [workspace.overrides]);
+  const forkedIds = useMemo(() => new Set(Object.keys({ ...workspace.overrides, ...workspace.threads }) as PlatformId[]), [workspace.overrides, workspace.threads]);
   const aiAdaptedIds = useMemo(() => {
     const ids = new Set<PlatformId>();
     for (const id of displayedVersions.keys()) {
-      if (!(id in workspace.overrides)) {
+      if (!(id in workspace.overrides) && !workspace.threads?.[id]) {
         ids.add(id);
       }
     }
     return ids;
-  }, [displayedVersions, workspace.overrides]);
+  }, [displayedVersions, workspace.overrides, workspace.threads]);
   const dormant = dormantPlatforms(workspace);
   const isEditorCollapsed = editorCollapsed;
 
@@ -354,7 +372,7 @@ function App() {
     // runAutoAdapt reads the latest workspace via this effect's closure; it re-runs
     // (resetting the timer) on every master/platform/override/config change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace.master, workspace.enabledPlatforms, workspace.overrides, llmConfig, authorBusy, reviewingMaster]);
+  }, [workspace.master, workspace.enabledPlatforms, workspace.overrides, workspace.threads, llmConfig, authorBusy, reviewingMaster]);
 
   async function runAutoAdapt(config: LlmConfig) {
     if (!isLlmReady(config) || !shouldAutoAdapt(config) || authorBusy || proposalsRef.current.has('master')) {
@@ -369,7 +387,7 @@ function App() {
     // leaves its platform (and its badge) alone.
     const manualId = manualFitRef.current?.id ?? null;
 
-    const targets = selectAutoAdapt(config, workspace.master, workspace.enabledPlatforms, workspace.overrides, aiVersionsRef.current);
+    const targets = selectAutoAdapt(config, workspace.master, workspace.enabledPlatforms, workspace.overrides, aiVersionsRef.current, workspace.threads);
 
     const masterText = docToPlainText(workspace.master);
     const masterMarkdown = docToMarkdown(workspace.master);
@@ -402,6 +420,7 @@ function App() {
 
           if (!controller.signal.aborted && workspaceRef.current.master === workspace.master &&
               workspaceRef.current.overrides[id] === undefined &&
+              !workspaceRef.current.threads?.[id] &&
               (aiVersionsRef.current.get(id) ?? workspaceRef.current.master) === before) {
             adaptedKeyRef.current.set(id, adaptKey);
             setAiVersions((prev) => new Map(prev).set(id, result.doc));
@@ -428,7 +447,7 @@ function App() {
   async function handleFit(id: PlatformId) {
     const spec = PLATFORMS_BY_ID[id];
 
-    if (!aiReady || !spec || authorBusy || reviewingMaster || platformBaseline) {
+    if (!aiReady || !spec || authorBusy || reviewingMaster || platformBaseline || workspace.threads?.[id]) {
       return;
     }
 
@@ -460,7 +479,7 @@ function App() {
       // while the request ran — applying it would discard their newer work.
       const current = workspaceRef.current;
 
-      if (current.master !== masterAtRequest || current.overrides[id] !== overrideAtRequest ||
+      if (current.master !== masterAtRequest || current.overrides[id] !== overrideAtRequest || current.threads?.[id] ||
           aiVersionsRef.current.get(id) !== versionAtRequest) {
         return;
       }
@@ -668,6 +687,32 @@ function App() {
     setActivePaneEditor(id);
   }
 
+  function handleSplitThread(id: PlatformId) {
+    if (authorBusy || reviewingMaster || platformBaseline || !PLATFORMS_BY_ID[id].capabilities.threads) return;
+    const source = workspace.overrides[id] ?? workspace.master;
+    const posts = splitThreadText(renderForPlatform(source, PLATFORMS_BY_ID[id]).text, PLATFORMS_BY_ID[id]);
+    if (!posts.length) {
+      setStorageNotice('Write a draft before splitting it into a thread.');
+      return;
+    }
+    handleThreadChange(id, { numbered: true, posts: posts.map((text) => ({ id: createDraftId(), text })) });
+    setActivePaneEditor((current) => current === id ? null : current);
+  }
+
+  function handleThreadChange(id: PlatformId, thread: PostThread) {
+    fitAbortRef.current?.abort();
+    if (manualFitRef.current?.id === id) {
+      manualFitRef.current.controller.abort();
+      manualFitRef.current = null;
+    }
+    const manual = manualFitRef.current?.id;
+    setGenerating(new Set(manual ? [manual] : []));
+    setAiUndo(null);
+    setWorkspace((prev) => applyThreadEdit(prev, id, thread));
+    clearAiVersion(id);
+    adaptedKeyRef.current.delete(id);
+  }
+
   function handleStopEditing() {
     setActivePaneEditor(null);
   }
@@ -688,6 +733,7 @@ function App() {
     return (
       Boolean(docToPlainText(workspace.master).trim()) ||
       Object.keys(workspace.overrides).length > 0 ||
+      Object.keys(workspace.threads ?? {}).length > 0 ||
       aiVersions.size > 0 ||
       sources.length > 0 ||
       imageAttachment !== null
@@ -732,7 +778,7 @@ function App() {
     cancelAiWork();
     setAiUndo(null);
     setActiveDraftId(null);
-    setWorkspace((prev) => ({ ...prev, master: EMPTY_DOCUMENT, overrides: {} }));
+    setWorkspace((prev) => ({ ...prev, master: EMPTY_DOCUMENT, overrides: {}, threads: {} }));
     setAiVersions(new Map());
     adaptedKeyRef.current.clear();
     setActivePaneEditor(null);
@@ -770,6 +816,7 @@ function App() {
       document: workspace.master,
       overrides: workspace.overrides,
       aiVersions: Object.fromEntries(aiVersions),
+      threads: workspace.threads,
       enabledPlatforms: workspace.enabledPlatforms,
       sources,
       characterCount: renderForPlatform(workspace.master, PLATFORMS_BY_ID.linkedin).summary.count,
@@ -903,6 +950,7 @@ function App() {
     setWorkspace((prev) => ({
       master: draft.document,
       overrides: draft.overrides ?? {},
+      threads: draft.threads ?? {},
       enabledPlatforms: draft.enabledPlatforms ?? prev.enabledPlatforms,
     }));
     // The restored AI versions were generated from the snapshot's inputs, not
@@ -1111,6 +1159,11 @@ function App() {
             onPaneChange={handlePaneChange}
             onResync={handleResync}
             onFit={handleFit}
+            threads={workspace.threads}
+            threadSources={threadSources}
+            threadingPaused={authorBusy || reviewingMaster || Boolean(platformBaseline)}
+            onSplitThread={handleSplitThread}
+            onThreadChange={handleThreadChange}
           />
         </section>
       </main>
@@ -1136,7 +1189,7 @@ function describeConfirmAction(action: ConfirmAction): { title: string; message:
     case 'resync':
       return {
         title: `Re-sync ${PLATFORMS_BY_ID[action.id]?.label ?? 'platform'}?`,
-        message: 'This discards the customized or accepted AI version for this platform and follows the master draft again. A recovery checkpoint will be saved first.',
+        message: 'This discards the customized post, thread, or accepted AI version for this platform and follows the master draft again. A recovery checkpoint will be saved first.',
         confirmLabel: 'Re-sync',
       };
     case 'reset':
@@ -1181,8 +1234,9 @@ function selectAutoAdapt(
   enabledPlatforms: PlatformId[],
   overrides: Partial<Record<PlatformId, EditorNode>>,
   aiVersions: ReadonlyMap<PlatformId, EditorNode>,
+  threads: PlatformThreads = {},
 ): PlatformId[] {
-  const userForkedIds = new Set(Object.keys(overrides) as PlatformId[]);
+  const userForkedIds = new Set(Object.keys({ ...overrides, ...threads }) as PlatformId[]);
   const aiVersionIds = new Set(aiVersions.keys());
   // Style guidance only targets cards when the editor itself has content —
   // context/source documents alone must not trigger styling of an empty post.
