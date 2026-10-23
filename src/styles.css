@@ -1643,7 +1643,7 @@ h2 {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .ai-review-change {
@@ -1711,7 +1711,7 @@ h2 {
 }
 
 .editor-workspace > .ai-review {
-  padding: 20px;
+  padding: 8px 20px;
   min-height: 240px;
 }
 
