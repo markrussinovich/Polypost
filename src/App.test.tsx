@@ -278,9 +278,40 @@ describe('App URL preview fetching', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Reject change' }));
     fireEvent.click(screen.getByRole('group', { name: 'Change 1' }));
     await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: 'Accept change' })); });
-    expect(card.querySelector('.platform-card-text')).toHaveTextContent('My old post!');
+    expect(card.querySelector('.platform-card-text')).toHaveTextContent('My old post.');
     expect(library.drafts.some((draft) => draft.document.content?.[0]?.content?.[0]?.text === 'My old post!')).toBe(true);
     expect(screen.getByLabelText('Mock post editor')).toHaveValue('My old post!');
+    await act(async () => { vi.advanceTimersByTime(2999); });
+    expect(card.querySelector('.platform-card-text')).toHaveTextContent('My old post.');
+    await act(async () => { vi.advanceTimersByTime(1); });
+    expect(card.querySelector('.platform-card-text')).toHaveTextContent('My old post!');
+  });
+
+  it('pauses platform adaptation during generation and review, then restarts the full idle delay', async () => {
+    let resolveAuthor!: (text: string) => void;
+    vi.mocked(generateText).mockReturnValueOnce(new Promise((resolve) => { resolveAuthor = resolve; }));
+    render(<App />);
+    fireEvent.change(screen.getByLabelText('Mock post editor'), { target: { value: 'Original master' } });
+    saveAiSettings('Friendly');
+    await act(async () => {});
+    vi.mocked(generateFit).mockClear();
+    fireEvent.change(screen.getByLabelText('AI instruction'), { target: { value: 'Rewrite' } });
+    fireEvent.keyDown(screen.getByLabelText('AI instruction'), { key: 'Enter' });
+    await act(async () => { vi.advanceTimersByTime(10000); });
+    expect(generateFit).not.toHaveBeenCalled();
+    await act(async () => { resolveAuthor('Final revised draft'); });
+    await act(async () => { vi.advanceTimersByTime(10000); });
+    expect(generateFit).not.toHaveBeenCalled();
+    const card = screen.getByLabelText('X preview');
+    expect(card.querySelector('.platform-card-text')).toHaveTextContent('Adapted');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Accept All' })); });
+    expect(screen.getByLabelText('Mock post editor')).toHaveValue('Final revised draft');
+    await act(async () => { vi.advanceTimersByTime(2999); });
+    expect(generateFit).not.toHaveBeenCalled();
+    expect(card.querySelector('.platform-card-text')).toHaveTextContent('Adapted');
+    await act(async () => { vi.advanceTimersByTime(1); });
+    expect(generateFit).toHaveBeenCalledTimes(3);
+    expect(generateFit).toHaveBeenCalledWith(expect.objectContaining({ masterText: 'Final revised draft' }));
   });
 
   it('manually regenerates platform output without review markup', async () => {
@@ -326,6 +357,9 @@ describe('App URL preview fetching', () => {
     expect(screen.getByLabelText('Mock post editor')).toHaveValue('AI-authored post');
     expect(screen.queryByRole('region', { name: 'Review AI changes for master draft' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull();
+    expect(screen.getByLabelText('X preview').querySelector('.platform-card-text')).not.toHaveTextContent('AI-authored post');
+    await act(async () => { vi.advanceTimersByTime(3000); });
+    expect(screen.getByLabelText('X preview').querySelector('.platform-card-text')).toHaveTextContent('AI-authored post');
   });
 
   it('automatically adapts over-limit edits after a typing pause', async () => {

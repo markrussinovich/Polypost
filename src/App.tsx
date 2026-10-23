@@ -113,6 +113,11 @@ function App() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [authorBusy, setAuthorBusy] = useState(false);
   const [authorError, setAuthorError] = useState<string | null>(null);
+  const [platformBaseline, setPlatformBaseline] = useState<{
+    master: EditorNode; versions: Map<PlatformId, EditorNode>; masterVersion: number;
+  } | null>(null);
+  const reviewingMaster = proposals.has('master');
+  const displayedVersions = platformBaseline?.versions ?? aiVersions;
 
   // Reference material handed to the AI as background (persisted).
   const [sources, setSources] = useState<Source[]>(loadSources);
@@ -243,14 +248,14 @@ function App() {
       const spec = PLATFORMS_BY_ID[id];
 
       if (spec) {
-        const doc = workspace.overrides[id] ?? aiVersions.get(id) ?? workspace.master;
+        const doc = workspace.overrides[id] ?? displayedVersions.get(id) ?? platformBaseline?.master ?? workspace.master;
         documents.set(id, doc);
         renders.set(id, renderForPlatform(doc, spec));
       }
     }
 
     return { platformRenders: renders, platformDocuments: documents };
-  }, [workspace, aiVersions]);
+  }, [workspace, displayedVersions, platformBaseline]);
 
   const platformPreviewUrls = useMemo(() => {
     if (imageAttachment) {
@@ -319,19 +324,25 @@ function App() {
   const forkedIds = useMemo(() => new Set(Object.keys(workspace.overrides) as PlatformId[]), [workspace.overrides]);
   const aiAdaptedIds = useMemo(() => {
     const ids = new Set<PlatformId>();
-    for (const id of aiVersions.keys()) {
+    for (const id of displayedVersions.keys()) {
       if (!(id in workspace.overrides)) {
         ids.add(id);
       }
     }
     return ids;
-  }, [aiVersions, workspace.overrides]);
+  }, [displayedVersions, workspace.overrides]);
   const dormant = dormantPlatforms(workspace);
   const isEditorCollapsed = editorCollapsed;
 
-  // Auto-adapt stages reviewable suggestions after a typing pause.
   useEffect(() => {
-    if (!aiReady || !shouldAutoAdapt(llmConfig)) {
+    if (!platformBaseline || authorBusy || reviewingMaster) return;
+    const handle = window.setTimeout(() => setPlatformBaseline(null), AUTOFIT_IDLE_MS);
+    return () => window.clearTimeout(handle);
+  }, [platformBaseline, authorBusy, reviewingMaster, workspace.master]);
+
+  // Restart the idle delay only after the main draft's review is final.
+  useEffect(() => {
+    if (!aiReady || !shouldAutoAdapt(llmConfig) || authorBusy || reviewingMaster) {
       return;
     }
 
@@ -343,10 +354,10 @@ function App() {
     // runAutoAdapt reads the latest workspace via this effect's closure; it re-runs
     // (resetting the timer) on every master/platform/override/config change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace.master, workspace.enabledPlatforms, workspace.overrides, llmConfig]);
+  }, [workspace.master, workspace.enabledPlatforms, workspace.overrides, llmConfig, authorBusy, reviewingMaster]);
 
   async function runAutoAdapt(config: LlmConfig) {
-    if (!isLlmReady(config) || !shouldAutoAdapt(config)) {
+    if (!isLlmReady(config) || !shouldAutoAdapt(config) || authorBusy || proposalsRef.current.has('master')) {
       return;
     }
 
@@ -417,7 +428,7 @@ function App() {
   async function handleFit(id: PlatformId) {
     const spec = PLATFORMS_BY_ID[id];
 
-    if (!aiReady || !spec) {
+    if (!aiReady || !spec || authorBusy || reviewingMaster || platformBaseline) {
       return;
     }
 
@@ -491,6 +502,10 @@ function App() {
 
     const masterAtRequest = workspace.master;
 
+    fitAbortRef.current?.abort();
+    manualFitRef.current?.controller.abort();
+    manualFitRef.current = null;
+    setGenerating(new Set());
     setAuthorBusy(true);
     setAuthorError(null);
 
@@ -731,6 +746,7 @@ function App() {
   }
 
   function cancelAiWork() {
+    setPlatformBaseline(null);
     fitAbortRef.current?.abort();
     manualFitRef.current?.controller.abort();
     manualFitRef.current = null;
@@ -821,6 +837,11 @@ function App() {
       dismissProposal(key);
     } else {
       cancelAiWork();
+      setPlatformBaseline(platformBaseline ?? {
+        master: workspaceRef.current.master,
+        versions: new Map(aiVersionsRef.current),
+        masterVersion,
+      });
       setWorkspace((prev) => applyMasterEdit(prev, document));
       setAiVersions(new Map());
       adaptedKeyRef.current.clear();
@@ -1081,10 +1102,10 @@ function App() {
             imageAttachment={imageAttachment}
             linkPreviews={linkPreviews}
             generatingIds={generating}
-            aiReady={aiReady}
+            aiReady={aiReady && !authorBusy && !reviewingMaster && !platformBaseline}
             aiError={aiError}
             editingId={activePaneEditor}
-            masterVersion={masterVersion}
+            masterVersion={platformBaseline?.masterVersion ?? masterVersion}
             onStartEditing={handleStartEditing}
             onStopEditing={handleStopEditing}
             onPaneChange={handlePaneChange}
