@@ -29,6 +29,7 @@ interface PlatformRailProps {
   onResync: (id: PlatformId) => void;
   onFit: (id: PlatformId) => void;
   threads?: PlatformThreads;
+  threadingNeededIds?: ReadonlySet<PlatformId>;
   threadingPaused?: boolean;
   onToggleThread?: (id: PlatformId, enabled: boolean) => void;
   onThreadChange?: (id: PlatformId, thread: PostThread) => void;
@@ -53,6 +54,7 @@ export function PlatformRail({
   onResync,
   onFit,
   threads,
+  threadingNeededIds,
   threadingPaused,
   onToggleThread,
   onThreadChange,
@@ -100,6 +102,7 @@ export function PlatformRail({
             onResync={() => onResync(spec.id)}
             onFit={() => onFit(spec.id)}
             thread={threads?.[spec.id]}
+            threadingNeeded={threadingNeededIds?.has(spec.id)}
             threadingPaused={threadingPaused}
             onToggleThread={onToggleThread ? (enabled) => onToggleThread(spec.id, enabled) : undefined}
             onThreadChange={onThreadChange ? (thread) => onThreadChange(spec.id, thread) : undefined}

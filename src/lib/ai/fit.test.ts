@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { getCharacterCountStatus } from '../constants';
 import { threadsSpec } from '../platforms/threads';
 import { xSpec } from '../platforms/x';
+import { blueskySpec } from '../platforms/bluesky';
 import { defaultLlmConfig } from './config';
 
 vi.mock('./llmClient', () => ({ generateText: vi.fn() }));
@@ -15,6 +16,14 @@ const mockGenerate = vi.mocked(generateText);
 const config = { ...defaultLlmConfig(), enabled: true, apiKey: 'k' };
 
 describe('full-text thread generation', () => {
+  it('preserves Unicode bullet line breaks in the generated full thread', async () => {
+    mockGenerate.mockReset();
+    const text = 'Highlights:\n\n\u2022 Plaza Mayor.\n\u2022 Two cathedrals.\n\u2022 The University, founded 1218.';
+    mockGenerate.mockResolvedValueOnce(text);
+    const doc = await generateThread({ config, spec: xSpec, masterText: text });
+    expect(renderForPlatform(doc, xSpec).text).toBe(text);
+  });
+
   it('keeps a long response intact in one request without fitting or truncating it', async () => {
     mockGenerate.mockReset();
     const text = 'All the facts and details. '.repeat(100).trim();
@@ -40,6 +49,17 @@ describe('full-text thread generation', () => {
 });
 
 describe('generateFit deterministic length check', () => {
+  it.each([xSpec, blueskySpec, threadsSpec])('keeps Unicode bullet items on separate lines in $label output', async (spec) => {
+    mockGenerate.mockReset();
+    const text = 'Highlights:\n\n\u2022 Plaza Mayor.\n\u2022 Two cathedrals.\n\u2022 The University, founded 1218.';
+    mockGenerate.mockResolvedValueOnce(text);
+    const result = await generateFit({ config, spec, masterText: text });
+    expect(renderForPlatform(result.doc, spec).text).toBe(text);
+    expect(result.withinLimit).toBe(true);
+    expect(result.truncated).toBe(false);
+    expect(mockGenerate).toHaveBeenCalledOnce();
+  });
+
   it('accepts the first attempt when it is already within the limit', async () => {
     mockGenerate.mockReset();
     mockGenerate.mockResolvedValueOnce('Short enough for X.');

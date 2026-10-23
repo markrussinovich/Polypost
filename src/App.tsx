@@ -245,9 +245,10 @@ function App() {
 
   // One render + seed document per enabled platform. The document each platform
   // renders/edits from: a user fork wins, then an AI-fitted version, then master.
-  const { platformRenders, platformDocuments } = useMemo(() => {
+  const { platformRenders, platformDocuments, threadingNeededIds } = useMemo(() => {
     const renders = new Map<PlatformId, PlatformRender>();
     const documents = new Map<PlatformId, EditorNode>();
+    const threadingNeededIds = new Set<PlatformId>();
 
     for (const id of workspace.enabledPlatforms) {
       const spec = PLATFORMS_BY_ID[id];
@@ -256,10 +257,14 @@ function App() {
         const doc = workspace.overrides[id] ?? displayedVersions.get(id) ?? platformBaseline?.master ?? workspace.master;
         documents.set(id, doc);
         renders.set(id, renderForPlatform(doc, spec));
+        const source = workspace.overrides[id] ?? platformBaseline?.master ?? workspace.master;
+        if (spec.capabilities.threads && renderForPlatform(source, spec).summary.count > spec.charLimit) {
+          threadingNeededIds.add(id);
+        }
       }
     }
 
-    return { platformRenders: renders, platformDocuments: documents };
+    return { platformRenders: renders, platformDocuments: documents, threadingNeededIds };
   }, [workspace, displayedVersions, platformBaseline]);
 
   const platformPreviewUrls = useMemo(() => {
@@ -715,12 +720,16 @@ function App() {
         return;
       }
     }
+    const current = workspaceRef.current;
+    const source = current.overrides[id] ?? current.master;
+    if (enabled && renderForPlatform(source, PLATFORMS_BY_ID[id]).summary.count <= PLATFORMS_BY_ID[id].charLimit) {
+      setStorageNotice('The original draft fits in a single post for this platform.');
+      return;
+    }
     fitAbortRef.current?.abort();
     manualFitRef.current?.controller.abort();
     manualFitRef.current = null;
     setGenerating(new Set());
-    const current = workspaceRef.current;
-    const source = current.overrides[id] ?? current.master;
     const thread = enabled ? makeThread(renderForPlatform(source, PLATFORMS_BY_ID[id]).text, PLATFORMS_BY_ID[id]) : null;
     const threads = { ...current.threads };
     if (thread) threads[id] = thread;
@@ -1178,6 +1187,7 @@ function App() {
             onResync={handleResync}
             onFit={handleFit}
             threads={workspace.threads}
+            threadingNeededIds={threadingNeededIds}
             threadingPaused={authorBusy || reviewingMaster || Boolean(platformBaseline)}
             onToggleThread={handleThreadToggle}
             onThreadChange={handleThreadChange}

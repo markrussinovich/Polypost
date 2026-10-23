@@ -40,6 +40,7 @@ interface PlatformCardProps {
   onResync: () => void;
   onFit: () => void;
   thread?: PostThread;
+  threadingNeeded?: boolean;
   threadingPaused?: boolean;
   onToggleThread?: (enabled: boolean) => void;
   onThreadChange?: (thread: PostThread) => void;
@@ -67,6 +68,7 @@ export function PlatformCard({
   onResync,
   onFit,
   thread,
+  threadingNeeded = false,
   threadingPaused = false,
   onToggleThread,
   onThreadChange,
@@ -246,7 +248,8 @@ export function PlatformCard({
               role="switch"
               aria-label={`Split ${spec.label} into a thread`}
               checked={Boolean(thread)}
-              disabled={threadingPaused || isEditing}
+              disabled={threadingPaused || isEditing || (!thread && !threadingNeeded)}
+              title={!thread && !threadingNeeded ? 'The original draft fits in a single post.' : undefined}
               onChange={(event) => onToggleThread(event.target.checked)}
             />
             Split into a thread
