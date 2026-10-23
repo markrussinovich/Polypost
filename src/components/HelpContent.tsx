@@ -49,6 +49,7 @@ export function HelpContent({ webApp = false }: { webApp?: boolean }) {
             any suggestion mechanically cut to fit.
           </li>
           <li>Platform previews stay unchanged during AI writing and review, then refresh after a three-second pause once all changes are resolved.</li>
+          <li>Toggle "View changes applied" for a clean preview without accepting or rejecting any changes.</li>
           <li>Undo AI change restores the previous version until your next content edit. Recovery history also retains versions before and after acceptance.</li>
           <li>Add Style guidance in settings to steer the voice (e.g. "keep it light-hearted with a bit of humor").</li>
         </ul>

@@ -48,6 +48,42 @@ describe('main draft AI review', () => {
     expect(docToMarkdown(handlers.onAccept.mock.calls[0][0])).toBe('My old post!');
   });
 
+  it('previews applied changes without resolving them and restores review markup', () => {
+    const handlers = callbacks();
+    render(<AiReview proposal={proposal} busy={false} {...handlers} />);
+    const toggle = screen.getByRole('checkbox', { name: 'View changes applied' });
+    const changes = screen.getByRole('region', { name: 'Tracked changes for X' });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    expect(toggle).toBeChecked();
+    expect(changes).toHaveTextContent('My new post!');
+    expect(changes.querySelector('ins, del')).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent('2 changes');
+    expect(handlers.onAccept).not.toHaveBeenCalled();
+    expect(handlers.onReject).not.toHaveBeenCalled();
+    fireEvent.click(toggle);
+    expect(changes.querySelector('ins')).not.toBeNull();
+    expect(changes.querySelector('del')).not.toBeNull();
+    expect(screen.getAllByRole('group', { name: /^Change / })).toHaveLength(2);
+  });
+
+  it('preserves decisions and in-place edits when switching preview modes', async () => {
+    const handlers = callbacks();
+    render(<AiReview proposal={proposal} busy={false} {...handlers} />);
+    changeAction(1, 'Reject');
+    const editable = screen.getAllByRole('textbox')[0];
+    editable.textContent = 'Your ';
+    fireEvent.input(editable);
+    const toggle = screen.getByRole('checkbox', { name: 'View changes applied' });
+    fireEvent.click(toggle);
+    expect(screen.getByRole('region', { name: 'Tracked changes for X' })).toHaveTextContent('Your old post!');
+    fireEvent.click(toggle);
+    expect(screen.getAllByRole('group', { name: /^Change / })).toHaveLength(1);
+    fireEvent.click(toggle);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Accept All' })); });
+    expect(docToMarkdown(handlers.onAccept.mock.calls[0][0])).toBe('Your old post!');
+  });
+
   it('accepts all pending changes but preserves prior rejections', async () => {
     const handlers = callbacks();
     render(<AiReview proposal={proposal} busy={false} {...handlers} />);

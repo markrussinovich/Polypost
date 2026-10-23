@@ -1650,6 +1650,19 @@ h2 {
   border-radius: 2px;
 }
 
+.ai-review-preview-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.ai-review-preview-toggle input {
+  accent-color: var(--linkedin-blue);
+}
+
 .ai-review-menu {
   position: fixed;
   z-index: 1300;
@@ -1673,6 +1686,16 @@ h2 {
   color: inherit;
   background: var(--surface);
   text-align: left;
+}
+
+.ai-review-toolbar .secondary-action.ai-review-accept,
+.ai-review-menu .ai-review-accept {
+  color: var(--success);
+}
+
+.ai-review-toolbar .secondary-action.ai-review-reject,
+.ai-review-menu .ai-review-reject {
+  color: var(--danger);
 }
 
 .ai-review-menu button:hover,

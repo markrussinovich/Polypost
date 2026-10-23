@@ -23,6 +23,7 @@ function ReviewProposal({ proposal, busy, onAccept, onReject }: AiReviewProps) {
   const [saving, setSaving] = useState(false);
   const [decisions, setDecisions] = useState<Record<number, 'accepted' | 'rejected'>>({});
   const [edits, setEdits] = useState<Record<number, string>>({});
+  const [appliedPreview, setAppliedPreview] = useState(false);
   const editValues = useRef(edits);
   const autoApplied = useRef(false);
   const [menu, setMenu] = useState<{ index: number; left: number; top: number; focus: boolean } | null>(null);
@@ -173,12 +174,25 @@ function ReviewProposal({ proposal, busy, onAccept, onReject }: AiReviewProps) {
       {pending.length ? (
         <div className="ai-review-toolbar" role="group" aria-label="Review changes">
           <span role="status">{pending.length} {pending.length === 1 ? 'change' : 'changes'}</span>
-          <button type="button" className="secondary-action" disabled={locked} onClick={() => decideAll('accepted')}>Accept All</button>
-          <button type="button" className="secondary-action" disabled={locked} onClick={() => decideAll('rejected')}>Reject All</button>
+          <button type="button" className="secondary-action ai-review-accept" disabled={locked} onClick={() => decideAll('accepted')}>Accept All</button>
+          <button type="button" className="secondary-action ai-review-reject" disabled={locked} onClick={() => decideAll('rejected')}>Reject All</button>
+          <label className="ai-review-preview-toggle">
+            <input
+              type="checkbox"
+              checked={appliedPreview}
+              disabled={locked}
+              onChange={(event) => {
+                setEdits(editValues.current);
+                setMenu(null);
+                setAppliedPreview(event.target.checked);
+              }}
+            />
+            View changes applied
+          </label>
         </div>
       ) : null}
       <div className="ai-review-changes" role="region" aria-label={`Tracked changes for ${label}`}>
-        {changes.map((change, index) => !change.changed || decisions[index]
+        {changes.map((change, index) => !change.changed || decisions[index] || appliedPreview
           ? <span key={index}>{editable(decisions[index] === 'rejected' ? change.before : change.after, index)}</span>
           : <span
               key={index}
@@ -226,10 +240,10 @@ function ReviewProposal({ proposal, busy, onAccept, onReject }: AiReviewProps) {
           }}
         >
           <button type="button" role="menuitem" onClick={() => decide(menu.index, 'accepted')}>
-            <Check aria-hidden="true" size={14} /> Accept change
+            <Check className="ai-review-accept" aria-hidden="true" size={14} /> Accept change
           </button>
           <button type="button" role="menuitem" onClick={() => decide(menu.index, 'rejected')}>
-            <X aria-hidden="true" size={14} /> Reject change
+            <X className="ai-review-reject" aria-hidden="true" size={14} /> Reject change
           </button>
         </div>, document.body,
       ) : null}
