@@ -7,11 +7,37 @@ import { defaultLlmConfig } from './config';
 
 vi.mock('./llmClient', () => ({ generateText: vi.fn() }));
 import { generateText } from './llmClient';
-import { generateFit } from './fit';
+import { generateFit, generateThread } from './fit';
+import { renderForPlatform } from '../platforms';
 
 const mockGenerate = vi.mocked(generateText);
 
 const config = { ...defaultLlmConfig(), enabled: true, apiKey: 'k' };
+
+describe('full-text thread generation', () => {
+  it('keeps a long response intact in one request without fitting or truncating it', async () => {
+    mockGenerate.mockReset();
+    const text = 'All the facts and details. '.repeat(100).trim();
+    mockGenerate.mockResolvedValueOnce(text);
+    const controller = new AbortController();
+    const doc = await generateThread({ config, spec: xSpec, masterText: text, style: 'Friendly', signal: controller.signal });
+    expect(renderForPlatform(doc, xSpec).text).toBe(text);
+    expect(mockGenerate).toHaveBeenCalledOnce();
+    const options = mockGenerate.mock.calls[0][0];
+    expect(options.prompt).toContain(text);
+    expect(options.prompt).not.toContain('Character limit:');
+    expect(options.system).toContain('Friendly');
+    expect(options).toMatchObject({ maxTokens: 8192, requireComplete: true, signal: controller.signal });
+  });
+
+  it('reports empty replies and provider failures rather than applying an empty thread', async () => {
+    mockGenerate.mockReset();
+    mockGenerate.mockResolvedValueOnce(' ');
+    await expect(generateThread({ config, spec: xSpec, masterText: 'Original' })).rejects.toThrow('empty thread');
+    mockGenerate.mockRejectedValueOnce(new Error('Provider error'));
+    await expect(generateThread({ config, spec: xSpec, masterText: 'Original' })).rejects.toThrow('Provider error');
+  });
+});
 
 describe('generateFit deterministic length check', () => {
   it('accepts the first attempt when it is already within the limit', async () => {

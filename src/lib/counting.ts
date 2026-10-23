@@ -56,6 +56,22 @@ const graphemeSegmenter =
     ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
     : null;
 
+const wordSegmenter =
+  typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
+    ? new Intl.Segmenter(undefined, { granularity: 'word' })
+    : null;
+
+export function countWords(text: string): number {
+  if (!wordSegmenter) {
+    return text.match(/[\p{L}\p{N}]+(?:['\u2019][\p{L}\p{N}]+)*/gu)?.length ?? 0;
+  }
+  let count = 0;
+  for (const segment of wordSegmenter.segment(text)) {
+    if (segment.isWordLike) count += 1;
+  }
+  return count;
+}
+
 export function countCharacters(text: string, method: CountingMethod): number {
   const normalized = text.normalize('NFC');
 

@@ -937,6 +937,13 @@ h2 {
   flex-direction: column;
 }
 
+.draft-word-count {
+  padding: 4px 20px 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: right;
+}
+
 .toolbar {
   display: grid;
   gap: 8px;
@@ -1593,8 +1600,7 @@ h2 {
   gap: 12px;
 }
 
-.draft-library-tools,
-.ai-undo-bar {
+.draft-library-tools {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -1605,7 +1611,68 @@ h2 {
   padding: 12px;
 }
 
-.post-thread-toolbar,
+.post-thread-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.post-thread-mode > strong {
+  margin-left: auto;
+  font-size: inherit;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.post-thread-mode input[role='switch'] {
+  appearance: none;
+  position: relative;
+  width: 32px;
+  height: 18px;
+  flex-shrink: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-alt);
+  cursor: pointer;
+}
+
+.post-thread-mode input[role='switch']::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.post-thread-mode input[role='switch']:checked {
+  border-color: var(--linkedin-blue);
+  background: var(--linkedin-blue);
+}
+
+.post-thread-mode input[role='switch']:checked::before {
+  transform: translateX(14px);
+  background: var(--surface);
+}
+
+.post-thread-mode input[role='switch']:focus-visible {
+  outline: 2px solid var(--linkedin-blue);
+  outline-offset: 2px;
+}
+
+.post-thread-mode input[role='switch']:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .post-thread-post-header,
 .post-thread-footer {
   display: flex;
@@ -1676,7 +1743,6 @@ h2 {
   font-size: 0.8rem;
 }
 
-.ai-undo-bar,
 .ai-review {
   padding: 16px;
   border: 1px solid var(--line);

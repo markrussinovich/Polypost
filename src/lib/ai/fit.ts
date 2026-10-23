@@ -6,7 +6,7 @@ import { renderForPlatform } from '../platforms';
 import type { PlatformSpec } from '../platforms/types';
 import type { LlmConfig } from './config';
 import { generateText } from './llmClient';
-import { buildFitRequest, buildOverLimitFeedback } from './prompts';
+import { buildFitRequest, buildOverLimitFeedback, buildThreadRequest } from './prompts';
 
 export interface FitResult {
   doc: EditorNode;
@@ -24,6 +24,13 @@ export interface FitOptions {
   style?: string;
   signal?: AbortSignal;
   maxAttempts?: number;
+}
+
+export async function generateThread({ config, spec, masterText, style, signal }: FitOptions): Promise<EditorNode> {
+  const request = buildThreadRequest(spec, masterText, style);
+  const text = await generateText({ config, ...request, signal, maxTokens: 8192, requireComplete: true });
+  if (!text.trim()) throw new Error('The model returned an empty thread.');
+  return markdownToTipTap(text);
 }
 
 // Measures a candidate exactly the way its preview card will (same render path),

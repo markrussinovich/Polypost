@@ -15,6 +15,8 @@ import { PolypostMark } from './components/PolypostMark';
 import { UpdatePrompt } from './components/UpdatePrompt';
 import { PlatformRail } from './components/PlatformRail';
 import { PlatformToggleChips } from './components/PlatformToggleChips';
+import { WordCount } from './components/WordCount';
+import { countWords } from './lib/counting';
 import { loadTheme, saveTheme, type Theme } from './lib/theme';
 import { selectAutofit } from './lib/ai/autofit';
 import { isLlmReady, loadLlmConfig, saveLlmConfig, type LlmConfig } from './lib/ai/config';
@@ -25,7 +27,7 @@ import { markdownToTipTap } from './lib/markdownToTipTap';
 import { fetchLinkPreview, lastUrlInText, shouldRefreshLinkPreview } from './lib/linkPreview';
 import { restoreDraftAttachments, revokeAttachment, serializeAttachmentsForDraft, type Attachment, type LinkPreview } from './lib/media';
 import { clearActiveAttachment, loadActiveAttachment, putActiveAttachment } from './lib/attachmentStore';
-import { generateFit } from './lib/ai/fit';
+import { generateFit, generateThread } from './lib/ai/fit';
 import { generateText } from './lib/ai/llmClient';
 import { buildAuthorRequest, buildSourceTitleRequest } from './lib/ai/prompts';
 import { APP_NAME } from './lib/constants';
@@ -36,8 +38,8 @@ import {
   PLATFORMS_BY_ID,
   renderForPlatform,
 } from './lib/platforms';
-import type { PlatformId, PlatformRender } from './lib/platforms/types';
-import { renderThreadPost, splitThreadText, type PlatformThreads, type PostThread } from './lib/postThreads';
+import type { PlatformId, PlatformRender, PlatformSpec } from './lib/platforms/types';
+import { parsePlatformThreads, renderThreadPost, splitThreadText, type PlatformThreads, type PostThread } from './lib/postThreads';
 import {
   loadWorkspace,
   createDraftId,
@@ -112,7 +114,6 @@ function App() {
   const [proposals, setProposals] = useState<Map<string, AiProposal>>(() => new Map());
   const proposalsRef = useRef(proposals);
   proposalsRef.current = proposals;
-  const [aiUndo, setAiUndo] = useState<{ workspace: Workspace; versions: Map<PlatformId, EditorNode> } | null>(null);
   const [generating, setGenerating] = useState<Set<PlatformId>>(() => new Set());
   const [aiError, setAiError] = useState<string | null>(null);
   const [authorBusy, setAuthorBusy] = useState(false);
@@ -261,17 +262,6 @@ function App() {
     return { platformRenders: renders, platformDocuments: documents };
   }, [workspace, displayedVersions, platformBaseline]);
 
-  const threadSources = useMemo(() => {
-    const sources = new Map<PlatformId, string>();
-    for (const id of workspace.enabledPlatforms) {
-      const spec = PLATFORMS_BY_ID[id];
-      if (spec?.capabilities.threads) {
-        sources.set(id, renderForPlatform(workspace.overrides[id] ?? platformBaseline?.master ?? workspace.master, spec).text);
-      }
-    }
-    return sources;
-  }, [workspace, platformBaseline]);
-
   const platformPreviewUrls = useMemo(() => {
     if (imageAttachment) {
       return [];
@@ -339,7 +329,11 @@ function App() {
   }, [debouncedPlatformPreviewUrls, linkPreviews]);
 
   const enabledSpecs = PLATFORMS.filter((spec) => workspace.enabledPlatforms.includes(spec.id));
-  const forkedIds = useMemo(() => new Set(Object.keys({ ...workspace.overrides, ...workspace.threads }) as PlatformId[]), [workspace.overrides, workspace.threads]);
+  const forkedIds = useMemo(() => new Set([
+    ...Object.keys(workspace.overrides),
+    ...Object.entries(workspace.threads ?? {}).filter(([, thread]) => thread.customized !== false).map(([id]) => id),
+  ] as PlatformId[]), [workspace.overrides, workspace.threads]);
+  const hasAutomaticThreads = Object.values(workspace.threads ?? {}).some((thread) => thread.customized === false);
   const aiAdaptedIds = useMemo(() => {
     const ids = new Set<PlatformId>();
     for (const id of displayedVersions.keys()) {
@@ -360,7 +354,7 @@ function App() {
 
   // Restart the idle delay only after the main draft's review is final.
   useEffect(() => {
-    if (!aiReady || !shouldAutoAdapt(llmConfig) || authorBusy || reviewingMaster) {
+    if ((!aiReady && !hasAutomaticThreads) || authorBusy || reviewingMaster) {
       return;
     }
 
@@ -375,7 +369,7 @@ function App() {
   }, [workspace.master, workspace.enabledPlatforms, workspace.overrides, workspace.threads, llmConfig, authorBusy, reviewingMaster]);
 
   async function runAutoAdapt(config: LlmConfig) {
-    if (!isLlmReady(config) || !shouldAutoAdapt(config) || authorBusy || proposalsRef.current.has('master')) {
+    if (authorBusy || proposalsRef.current.has('master')) {
       return;
     }
 
@@ -387,14 +381,15 @@ function App() {
     // leaves its platform (and its badge) alone.
     const manualId = manualFitRef.current?.id ?? null;
 
+    const ready = isLlmReady(config);
     const targets = selectAutoAdapt(config, workspace.master, workspace.enabledPlatforms, workspace.overrides, aiVersionsRef.current, workspace.threads);
-
-    const masterText = docToPlainText(workspace.master);
-    const masterMarkdown = docToMarkdown(workspace.master);
-    const adaptKey = makeAdaptKey(config.stylePrompt, masterMarkdown);
-    const toFit = targets.filter(
-      (id) => id !== manualId && adaptedKeyRef.current.get(id) !== adaptKey,
+    const keyFor = (id: PlatformId) => makeAdaptKey(
+      config.stylePrompt,
+      docToMarkdown(workspace.threads?.[id] ? workspace.overrides[id] ?? workspace.master : workspace.master),
+      Boolean(workspace.threads?.[id]),
     );
+    const toFit = targets.filter((id) =>
+      id !== manualId && (ready || workspace.threads?.[id]) && adaptedKeyRef.current.get(id) !== keyFor(id));
 
     if (toFit.length === 0) {
       // The abort above orphaned any badges the superseded run was showing
@@ -416,13 +411,28 @@ function App() {
 
         try {
           const before = aiVersionsRef.current.get(id) ?? workspace.master;
-          const result = await generateFit({ config, spec, masterText: spec.allowUnicodeStyling ? masterMarkdown : masterText, style: config.stylePrompt, signal: controller.signal });
-
-          if (!controller.signal.aborted && workspaceRef.current.master === workspace.master &&
-              workspaceRef.current.overrides[id] === undefined &&
-              !workspaceRef.current.threads?.[id] &&
-              (aiVersionsRef.current.get(id) ?? workspaceRef.current.master) === before) {
-            adaptedKeyRef.current.set(id, adaptKey);
+          const thread = workspace.threads?.[id];
+          const source = thread ? workspace.overrides[id] ?? workspace.master : workspace.master;
+          const options = {
+            config, spec, masterText: spec.allowUnicodeStyling ? docToMarkdown(source) : docToPlainText(source),
+            style: config.stylePrompt, signal: controller.signal,
+          };
+          const result = thread
+            ? { doc: ready && docToPlainText(source).trim() ? await generateThread(options) : source, truncated: false }
+            : await generateFit(options);
+          const current = workspaceRef.current;
+          if (controller.signal.aborted || current.master !== workspace.master) return;
+          if (thread) {
+            const currentThread = current.threads?.[id];
+            if (currentThread?.posts !== thread.posts || currentThread.customized !== false ||
+                current.overrides[id] !== workspace.overrides[id]) return;
+            adaptedKeyRef.current.set(id, keyFor(id));
+            const next = makeThread(renderForPlatform(result.doc, spec).text, spec);
+            setWorkspace((prev) => applyThreadEdit(prev, id, next));
+            clearAiVersion(id);
+          } else if (current.overrides[id] === undefined && !current.threads?.[id] &&
+              (aiVersionsRef.current.get(id) ?? current.master) === before) {
+            adaptedKeyRef.current.set(id, keyFor(id));
             setAiVersions((prev) => new Map(prev).set(id, result.doc));
             if (result.truncated) setAiError(`${spec.label}: AI version was cut to fit.`);
           }
@@ -444,10 +454,10 @@ function App() {
     );
   }
 
-  async function handleFit(id: PlatformId) {
+  async function handleFit(id: PlatformId, thread: PostThread | null = workspace.threads?.[id] ?? null) {
     const spec = PLATFORMS_BY_ID[id];
 
-    if (!aiReady || !spec || authorBusy || reviewingMaster || platformBaseline || workspace.threads?.[id]) {
+    if (!aiReady || !spec || authorBusy || reviewingMaster || platformBaseline) {
       return;
     }
 
@@ -461,7 +471,7 @@ function App() {
     const masterAtRequest = workspace.master;
     const overrideAtRequest = workspace.overrides[id];
     const versionAtRequest = aiVersions.get(id);
-    const before = overrideAtRequest ?? versionAtRequest ?? masterAtRequest;
+    const before = thread ? overrideAtRequest ?? masterAtRequest : overrideAtRequest ?? versionAtRequest ?? masterAtRequest;
 
     setGenerating(new Set([id]));
     setAiError(null);
@@ -469,7 +479,10 @@ function App() {
     try {
       const masterMarkdown = docToMarkdown(before);
       const masterText = spec.allowUnicodeStyling ? masterMarkdown : docToPlainText(before);
-      const result = await generateFit({ config: llmConfig, spec, masterText, style: llmConfig.stylePrompt, signal: controller.signal });
+      const options = { config: llmConfig, spec, masterText, style: llmConfig.stylePrompt, signal: controller.signal };
+      const result = thread
+        ? { doc: await generateThread(options), truncated: false }
+        : await generateFit(options);
 
       if (controller.signal.aborted) {
         return;
@@ -479,17 +492,24 @@ function App() {
       // while the request ran — applying it would discard their newer work.
       const current = workspaceRef.current;
 
-      if (current.master !== masterAtRequest || current.overrides[id] !== overrideAtRequest || current.threads?.[id] ||
-          aiVersionsRef.current.get(id) !== versionAtRequest) {
+      const currentThread = current.threads?.[id] ?? null;
+      if (current.master !== masterAtRequest || current.overrides[id] !== overrideAtRequest ||
+          Boolean(currentThread) !== Boolean(thread) ||
+          (thread ? currentThread?.posts !== thread.posts : aiVersionsRef.current.get(id) !== versionAtRequest)) {
         return;
       }
 
       // Record what this version was generated from so the idle pass doesn't
       // immediately regenerate (and visibly replace) the accepted result.
-      adaptedKeyRef.current.set(id, makeAdaptKey(llmConfig.stylePrompt, docToMarkdown(masterAtRequest)));
-      setAiUndo({ workspace: current, versions: new Map(aiVersionsRef.current) });
-      setWorkspace((prev) => resyncPlatform(prev, id));
-      setAiVersions((prev) => new Map(prev).set(id, result.doc));
+      adaptedKeyRef.current.set(id, makeAdaptKey(llmConfig.stylePrompt, docToMarkdown(thread ? before : masterAtRequest), Boolean(thread)));
+      if (currentThread) {
+        const next = makeThread(renderForPlatform(result.doc, spec).text, spec);
+        setWorkspace((prev) => applyThreadEdit(prev, id, next));
+        clearAiVersion(id);
+      } else {
+        setWorkspace((prev) => resyncPlatform(prev, id));
+        setAiVersions((prev) => new Map(prev).set(id, result.doc));
+      }
       if (result.truncated) setAiError(`${spec.label}: AI version was cut to fit.`);
     } catch (error) {
       if (!controller.signal.aborted) {
@@ -632,7 +652,6 @@ function App() {
   function handleMasterChange(nextMaster: EditorNode) {
     if (JSON.stringify(nextMaster) === JSON.stringify(workspace.master)) return;
     cancelAiWork();
-    setAiUndo(null);
     setAiVersions(new Map());
     adaptedKeyRef.current.clear();
     setWorkspace((prev) => applyMasterEdit(prev, nextMaster));
@@ -652,7 +671,6 @@ function App() {
 
   function performReplaceDocument(nextMaster: EditorNode) {
     cancelAiWork();
-    setAiUndo(null);
     setWorkspace((prev) => applyMasterEdit(prev, nextMaster));
     setAiVersions(new Map());
     adaptedKeyRef.current.clear();
@@ -663,7 +681,6 @@ function App() {
   }
 
   function handlePaneChange(id: PlatformId, doc: EditorNode) {
-    setAiUndo(null);
     dismissProposal(id);
     if (manualFitRef.current?.id === id) {
       manualFitRef.current.controller.abort();
@@ -687,30 +704,54 @@ function App() {
     setActivePaneEditor(id);
   }
 
-  function handleSplitThread(id: PlatformId) {
+  async function handleThreadToggle(id: PlatformId, enabled: boolean) {
     if (authorBusy || reviewingMaster || platformBaseline || !PLATFORMS_BY_ID[id].capabilities.threads) return;
-    const source = workspace.overrides[id] ?? workspace.master;
-    const posts = splitThreadText(renderForPlatform(source, PLATFORMS_BY_ID[id]).text, PLATFORMS_BY_ID[id]);
-    if (!posts.length) {
-      setStorageNotice('Write a draft before splitting it into a thread.');
-      return;
+    const key = contentKeyRef.current;
+    const author = authorAbortRef.current;
+    if (!enabled && workspace.threads?.[id]?.customized !== false) {
+      if (!await saveRecovery('Before turning off thread mode')) return;
+      if (contentKeyRef.current !== key || authorAbortRef.current !== author || proposalsRef.current.has('master')) {
+        setStorageNotice('The draft changed while recovery was being saved. Thread mode was not changed; try again.');
+        return;
+      }
     }
-    handleThreadChange(id, { numbered: true, posts: posts.map((text) => ({ id: createDraftId(), text })) });
+    fitAbortRef.current?.abort();
+    manualFitRef.current?.controller.abort();
+    manualFitRef.current = null;
+    setGenerating(new Set());
+    const current = workspaceRef.current;
+    const source = current.overrides[id] ?? current.master;
+    const thread = enabled ? makeThread(renderForPlatform(source, PLATFORMS_BY_ID[id]).text, PLATFORMS_BY_ID[id]) : null;
+    const threads = { ...current.threads };
+    if (thread) threads[id] = thread;
+    else delete threads[id];
+    const next = { ...current, threads };
+    workspaceRef.current = next;
+    setWorkspace(next);
+    adaptedKeyRef.current.delete(id);
     setActivePaneEditor((current) => current === id ? null : current);
+    if (aiReady && docToPlainText(source).trim()) void handleFit(id, thread);
+    else {
+      if (thread) adaptedKeyRef.current.set(id, makeAdaptKey(llmConfig.stylePrompt, docToMarkdown(source), true));
+      clearAiVersion(id);
+    }
   }
 
   function handleThreadChange(id: PlatformId, thread: PostThread) {
-    fitAbortRef.current?.abort();
-    if (manualFitRef.current?.id === id) {
-      manualFitRef.current.controller.abort();
-      manualFitRef.current = null;
+    const previous = workspace.threads?.[id];
+    const contentChanged = previous?.posts !== thread.posts;
+    if (contentChanged) {
+      fitAbortRef.current?.abort();
+      if (manualFitRef.current?.id === id) {
+        manualFitRef.current.controller.abort();
+        manualFitRef.current = null;
+      }
+      const manual = manualFitRef.current?.id;
+      setGenerating(new Set(manual ? [manual] : []));
+      clearAiVersion(id);
+      adaptedKeyRef.current.delete(id);
     }
-    const manual = manualFitRef.current?.id;
-    setGenerating(new Set(manual ? [manual] : []));
-    setAiUndo(null);
-    setWorkspace((prev) => applyThreadEdit(prev, id, thread));
-    clearAiVersion(id);
-    adaptedKeyRef.current.delete(id);
+    setWorkspace((prev) => applyThreadEdit(prev, id, { ...thread, customized: contentChanged || previous?.customized !== false }));
   }
 
   function handleStopEditing() {
@@ -745,7 +786,6 @@ function App() {
   }
 
   function performResync(id: PlatformId) {
-    setAiUndo(null);
     dismissProposal(id);
     setWorkspace((prev) => resyncPlatform(prev, id));
     clearAiVersion(id);
@@ -755,7 +795,6 @@ function App() {
   }
 
   function handleTogglePlatform(id: PlatformId) {
-    setAiUndo(null);
     dismissProposal(id);
     fitAbortRef.current?.abort();
     manualFitRef.current?.controller.abort();
@@ -776,7 +815,6 @@ function App() {
 
   function performReset() {
     cancelAiWork();
-    setAiUndo(null);
     setActiveDraftId(null);
     setWorkspace((prev) => ({ ...prev, master: EMPTY_DOCUMENT, overrides: {}, threads: {} }));
     setAiVersions(new Map());
@@ -874,7 +912,6 @@ function App() {
       return;
     }
     if (!isCurrentProposal(key, proposal)) return;
-    setAiUndo({ workspace: workspaceRef.current, versions: new Map(aiVersionsRef.current) });
     if (proposal.platform) {
       const id = proposal.platform;
       setWorkspace((prev) => resyncPlatform(prev, id));
@@ -895,19 +932,6 @@ function App() {
       setEditorVersion((version) => version + 1);
       setMasterVersion((version) => version + 1);
     }
-  }
-
-  async function undoAiChange() {
-    if (!aiUndo) return;
-    const key = contentKey;
-    if (!await saveRecovery('Before undoing AI changes') || contentKeyRef.current !== key) return;
-    cancelAiWork();
-    setWorkspace(aiUndo.workspace);
-    setAiVersions(aiUndo.versions);
-    setActivePaneEditor(null);
-    setAiUndo(null);
-    setEditorVersion((version) => version + 1);
-    setMasterVersion((version) => version + 1);
   }
 
   async function handleSaveDraftSnapshot(title: string, update = false): Promise<boolean> {
@@ -940,7 +964,6 @@ function App() {
 
   function performRestoreDraftSnapshot(draft: LibraryDraft) {
     cancelAiWork();
-    setAiUndo(null);
     setActiveDraftId(draft.kind === 'draft' ? draft.id : null);
     startedPreviewKeys.current.clear();
     setLinkPreviews(new Map());
@@ -950,7 +973,7 @@ function App() {
     setWorkspace((prev) => ({
       master: draft.document,
       overrides: draft.overrides ?? {},
-      threads: draft.threads ?? {},
+      threads: draft.threads === undefined ? {} : parsePlatformThreads(draft.threads),
       enabledPlatforms: draft.enabledPlatforms ?? prev.enabledPlatforms,
     }));
     // The restored AI versions were generated from the snapshot's inputs, not
@@ -1090,12 +1113,6 @@ function App() {
         </div>
 
         {storageNotice ? <p className="inline-alert panel-alert" role="status">{storageNotice}</p> : null}
-        {aiUndo ? (
-          <div className="ai-undo-bar" role="status">
-            <span>AI changes accepted. The previous version is available until your next edit, and in recovery history.</span>
-            <button type="button" className="secondary-action" onClick={() => void undoAiChange()}>Undo AI change</button>
-          </div>
-        ) : null}
         <section className={`workspace-grid${isEditorCollapsed ? ' is-editor-collapsed' : ''}`} aria-label={`${APP_NAME} workspace`}>
           {isEditorCollapsed ? null : (
           <div className="workspace-panel editor-workspace">
@@ -1128,6 +1145,7 @@ function App() {
               onReset={handleReset}
             />
             )}
+            {!proposals.has('master') ? <WordCount count={countWords(docToPlainText(workspace.master))} /> : null}
             <ImageAttachmentControl image={imageAttachment} onSetImage={handleSetImageAttachment} />
             <DraftHistoryPanel
               drafts={draftHistory}
@@ -1160,9 +1178,8 @@ function App() {
             onResync={handleResync}
             onFit={handleFit}
             threads={workspace.threads}
-            threadSources={threadSources}
             threadingPaused={authorBusy || reviewingMaster || Boolean(platformBaseline)}
-            onSplitThread={handleSplitThread}
+            onToggleThread={handleThreadToggle}
             onThreadChange={handleThreadChange}
           />
         </section>
@@ -1219,13 +1236,14 @@ function describeConfirmAction(action: ConfirmAction): { title: string; message:
   }
 }
 
-function shouldAutoAdapt(config: LlmConfig): boolean {
-  return Boolean(config.stylePrompt.trim()) || config.autoFit;
+// Cache key for adaptedKeyRef: the inputs an AI platform version derives from.
+function makeAdaptKey(stylePrompt: string, masterMarkdown: string, threaded = false): string {
+  return JSON.stringify([stylePrompt, masterMarkdown, threaded]);
 }
 
-// Cache key for adaptedKeyRef: the inputs an AI platform version derives from.
-function makeAdaptKey(stylePrompt: string, masterMarkdown: string): string {
-  return JSON.stringify([stylePrompt, masterMarkdown]);
+function makeThread(text: string, spec: PlatformSpec): PostThread {
+  const posts = splitThreadText(text, spec);
+  return { numbered: true, customized: false, posts: (posts.length ? posts : ['']).map((text) => ({ id: createDraftId(), text })) };
 }
 
 function selectAutoAdapt(
@@ -1246,7 +1264,8 @@ function selectAutoAdapt(
   const fitSelection = config.autoFit
     ? selectAutofit({ master, enabledPlatforms, userForkedIds, aiVersionIds })
     : { toFit: [], toClear: [] };
-  return [...new Set([...fitSelection.toFit, ...styleTargets])];
+  const threadTargets = enabledPlatforms.filter((id) => threads[id]?.customized === false);
+  return [...new Set([...fitSelection.toFit, ...styleTargets, ...threadTargets])];
 }
 
 function previewFetchKey(id: string, preview: LinkPreview | undefined): string {

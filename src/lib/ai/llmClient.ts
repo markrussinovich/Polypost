@@ -5,6 +5,7 @@ export interface GenerateOptions {
   system: string;
   prompt: string;
   maxTokens?: number;
+  requireComplete?: boolean;
   signal?: AbortSignal;
 }
 
@@ -18,17 +19,17 @@ function trimTrailingSlash(url: string): string {
 }
 
 // Single entry point for all supported API shapes. Returns the model's plain-text reply.
-export async function generateText({ config, system, prompt, maxTokens = DEFAULT_MAX_TOKENS, signal }: GenerateOptions): Promise<string> {
+export async function generateText({ config, system, prompt, maxTokens = DEFAULT_MAX_TOKENS, requireComplete = false, signal }: GenerateOptions): Promise<string> {
   try {
     if (config.provider === 'anthropic') {
-      return await generateAnthropic({ config, system, prompt, maxTokens, signal });
+      return await generateAnthropic({ config, system, prompt, maxTokens, requireComplete, signal });
     }
 
     if (config.provider === 'gemini') {
-      return await generateGemini({ config, system, prompt, maxTokens, signal });
+      return await generateGemini({ config, system, prompt, maxTokens, requireComplete, signal });
     }
 
-    return await generateOpenAI({ config, system, prompt, maxTokens, signal });
+    return await generateOpenAI({ config, system, prompt, maxTokens, requireComplete, signal });
   } catch (error) {
     // Server error bodies can echo the request's credentials (some gateways
     // include the offending key in "incorrect API key" messages); every message
@@ -80,7 +81,7 @@ function redactApiKey(message: string, apiKey: string): string {
   return message.split(apiKey).join('[redacted]');
 }
 
-async function generateAnthropic({ config, system, prompt, maxTokens, signal }: Required<Omit<GenerateOptions, 'signal'>> & { signal?: AbortSignal }): Promise<string> {
+async function generateAnthropic({ config, system, prompt, maxTokens, requireComplete, signal }: Required<Omit<GenerateOptions, 'signal'>> & { signal?: AbortSignal }): Promise<string> {
   const endpoint = `${trimTrailingSlash(config.baseUrl)}/v1/messages`;
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -106,6 +107,8 @@ async function generateAnthropic({ config, system, prompt, maxTokens, signal }: 
     throw new LlmError(extractErrorMessage(data) ?? `Request failed (${response.status}).`);
   }
 
+  if (requireComplete && data?.stop_reason === 'max_tokens') throw incompleteResponse();
+
   const text = Array.isArray(data?.content)
     ? data.content.filter((block: { type?: string }) => block?.type === 'text').map((block: { text?: string }) => block.text ?? '').join('')
     : '';
@@ -117,7 +120,7 @@ async function generateAnthropic({ config, system, prompt, maxTokens, signal }: 
   return text.trim();
 }
 
-async function generateOpenAI({ config, system, prompt, maxTokens, signal }: Required<Omit<GenerateOptions, 'signal'>> & { signal?: AbortSignal }): Promise<string> {
+async function generateOpenAI({ config, system, prompt, maxTokens, requireComplete, signal }: Required<Omit<GenerateOptions, 'signal'>> & { signal?: AbortSignal }): Promise<string> {
   const endpoint = `${trimTrailingSlash(config.baseUrl)}/chat/completions`;
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -144,6 +147,8 @@ async function generateOpenAI({ config, system, prompt, maxTokens, signal }: Req
     throw new LlmError(extractErrorMessage(data) ?? `Request failed (${response.status}).`);
   }
 
+  if (requireComplete && data?.choices?.[0]?.finish_reason === 'length') throw incompleteResponse();
+
   const text: string = data?.choices?.[0]?.message?.content ?? '';
 
   if (!text.trim()) {
@@ -153,7 +158,7 @@ async function generateOpenAI({ config, system, prompt, maxTokens, signal }: Req
   return text.trim();
 }
 
-async function generateGemini({ config, system, prompt, maxTokens, signal }: Required<Omit<GenerateOptions, 'signal'>> & { signal?: AbortSignal }): Promise<string> {
+async function generateGemini({ config, system, prompt, maxTokens, requireComplete, signal }: Required<Omit<GenerateOptions, 'signal'>> & { signal?: AbortSignal }): Promise<string> {
   const endpoint = `${trimTrailingSlash(config.baseUrl)}/models/${encodeURIComponent(config.model)}:generateContent`;
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -175,6 +180,8 @@ async function generateGemini({ config, system, prompt, maxTokens, signal }: Req
     throw new LlmError(extractErrorMessage(data) ?? `Request failed (${response.status}).`);
   }
 
+  if (requireComplete && data?.candidates?.[0]?.finishReason === 'MAX_TOKENS') throw incompleteResponse();
+
   const parts = data?.candidates?.[0]?.content?.parts;
   const text = Array.isArray(parts) ? parts.map((part: { text?: string }) => part.text ?? '').join('') : '';
 
@@ -183,6 +190,10 @@ async function generateGemini({ config, system, prompt, maxTokens, signal }: Req
   }
 
   return text.trim();
+}
+
+function incompleteResponse(): LlmError {
+  return new LlmError('The model hit its output limit before completing the response. Nothing was applied; try a model with a larger output capacity.');
 }
 
 async function readJson(response: Response): Promise<any> {

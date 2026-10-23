@@ -9,20 +9,22 @@ export interface ThreadPost {
 
 export interface PostThread {
   posts: ThreadPost[];
+  // Retained for stored-draft compatibility; all threads now render numbered.
   numbered: boolean;
+  customized?: boolean;
 }
 
 export type PlatformThreads = Partial<Record<PlatformId, PostThread>>;
 
 export function renderThreadPost(thread: PostThread, index: number, spec: PlatformSpec) {
-  const text = thread.posts[index].text + (thread.numbered ? `\n\n${index + 1}/${thread.posts.length}` : '');
+  const text = thread.posts[index].text + `\n\n${index + 1}/${thread.posts.length}`;
   return renderForPlatform({
     type: 'doc', content: [{ type: 'paragraph', content: text ? [{ type: 'text', text }] : [] }],
   }, spec);
 }
 
 // URLs stay atomic; fallback splits are at grapheme boundaries, never inside emoji.
-export function splitThreadText(text: string, spec: PlatformSpec, numbered = true): string[] {
+export function splitThreadText(text: string, spec: PlatformSpec): string[] {
   const atoms: string[] = [];
   let cursor = 0;
   for (const range of urlTokenRanges(text)) {
@@ -34,10 +36,10 @@ export function splitThreadText(text: string, spec: PlatformSpec, numbered = tru
 
   let digits = 1;
   for (;;) {
-    const suffix = numbered ? `\n\n${'9'.repeat(digits)}/${'9'.repeat(digits)}` : '';
+    const suffix = `\n\n${'9'.repeat(digits)}/${'9'.repeat(digits)}`;
     const posts = splitAtoms(atoms, spec, suffix);
     const needed = String(posts.length).length;
-    if (!numbered || needed <= digits) return posts;
+    if (needed <= digits) return posts;
     digits = needed;
   }
 }
@@ -96,7 +98,9 @@ export function isPlatformThreads(value: unknown): value is PlatformThreads {
 }
 
 function isPostThread(value: unknown): value is PostThread {
-  if (!isRecord(value) || typeof value.numbered !== 'boolean' || !Array.isArray(value.posts) || !value.posts.length) return false;
+  if (!isRecord(value) || typeof value.numbered !== 'boolean' ||
+      (value.customized !== undefined && typeof value.customized !== 'boolean') ||
+      !Array.isArray(value.posts) || !value.posts.length) return false;
   const posts: unknown[] = value.posts;
   if (!posts.every((post): post is ThreadPost =>
     isRecord(post) && typeof post.id === 'string' && Boolean(post.id) && typeof post.text === 'string')) return false;
@@ -106,7 +110,8 @@ function isPostThread(value: unknown): value is PostThread {
 export function parsePlatformThreads(value: unknown): PlatformThreads {
   if (!isPlatformThreads(value)) throw new Error('Invalid platform threads.');
   return Object.fromEntries(Object.entries(value).map(([id, thread]) => [id, {
-    numbered: thread.numbered,
+    numbered: true,
+    customized: thread.customized ?? true,
     posts: thread.posts.map((post) => ({ id: post.id, text: post.text })),
   }]));
 }

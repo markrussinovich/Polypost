@@ -74,6 +74,14 @@ describe('workspace fork-on-edit helpers', () => {
     expect(ws.enabledPlatforms).toEqual(['linkedin', 'x', 'bluesky']);
   });
 
+  it('distinguishes automatic threads from manual customization without losing underlying overrides', () => {
+    const thread = { numbered: true, customized: false, posts: [{ id: 'a', text: 'Automatic text' }] };
+    const ws = applyThreadEdit(baseWorkspace(), 'x', thread);
+    expect(isForked(ws, 'x')).toBe(false);
+    expect(isForked(applyThreadEdit(ws, 'x', { ...thread, customized: true }), 'x')).toBe(true);
+    expect(isForked(applyPaneEdit(ws, 'x', makeDoc('Custom source')), 'x')).toBe(true);
+  });
+
   it('keeps a customized thread through master edits and platform toggles, and clears it on resync', () => {
     const thread = { numbered: true, posts: [{ id: 'a', text: 'Thread text' }] };
     let ws = applyThreadEdit(baseWorkspace(), 'x', thread);

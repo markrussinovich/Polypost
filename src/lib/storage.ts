@@ -2,7 +2,7 @@ import type { EditorNode } from './exportLinkedInText';
 import type { Source } from './ai/sources';
 import type { StoredAttachment } from './media';
 import type { PlatformId } from './platforms/types';
-import { isPlatformThreads, type PlatformThreads } from './postThreads';
+import { isPlatformThreads, parsePlatformThreads, type PlatformThreads } from './postThreads';
 
 const DRAFT_STORAGE_KEY = 'linkedin-format:draft-v1';
 const DRAFT_HISTORY_KEY = 'linkedin-format:draft-history-v1';
@@ -138,7 +138,7 @@ export function loadWorkspace(): LoadWorkspaceResult {
     }
 
     if (isStoredWorkspace(parsed)) {
-      return { workspace: parsed, error: null };
+      return { workspace: { ...parsed, threads: parsed.threads === undefined ? undefined : parsePlatformThreads(parsed.threads) }, error: null };
     }
 
     // v2 present but corrupt/invalid: fall back to the legacy draft if any.

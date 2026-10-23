@@ -20,10 +20,10 @@ describe('platform thread splitting', () => {
   });
 
   it('prefers paragraphs, then sentences, then words', () => {
-    const spec = { ...xSpec, charLimit: 45 };
-    expect(splitThreadText('First paragraph.\n\nSecond paragraph has a longer message.', spec, false)[0]).toBe('First paragraph.');
-    expect(splitThreadText('First sentence. The next sentence has a very long ending.', spec, false)[0]).toBe('First sentence.');
-    expect(splitThreadText('word '.repeat(20), spec, false)[0]).toBe('word word word word word word word word word');
+    const spec = { ...xSpec, charLimit: 50 };
+    expect(splitThreadText('First paragraph.\n\nSecond paragraph has a longer message.', spec)[0]).toBe('First paragraph.');
+    expect(splitThreadText('First sentence. The next sentence has a very long ending.', spec)[0]).toBe('First sentence.');
+    expect(splitThreadText('word '.repeat(20), spec)[0]).toBe('word word word word word word word word word');
   });
 
   it.each([xSpec, blueskySpec, threadsSpec])('respects $label Unicode counting without breaking clusters', (spec) => {
@@ -71,15 +71,15 @@ describe('platform thread splitting', () => {
     posts.forEach((post, index) => expect(countCharacters(`${post}\n\n${index + 1}/${posts.length}`, spec.counting)).toBeLessThanOrEqual(30));
   });
 
-  it('supports unnumbered posts and empty input', () => {
-    expect(splitThreadText('a'.repeat(560), xSpec, false)).toEqual(['a'.repeat(280), 'a'.repeat(280)]);
+  it('always reserves numbering space and handles empty input', () => {
+    expect(splitThreadText('a'.repeat(560), xSpec)).toEqual(['a'.repeat(275), 'a'.repeat(275), 'a'.repeat(10)]);
     expect(splitThreadText(' \n ', xSpec)).toEqual([]);
   });
 
   it('renders counts and copied text including numbering and flattened mentions', () => {
     const thread = { numbered: true, posts: [{ id: 'a', text: 'Thanks @[Scott Hanselman]' }, { id: 'b', text: 'More' }] };
     expect(renderThreadPost(thread, 0, xSpec).text).toBe('Thanks @ScottHanselman\n\n1/2');
-    expect(renderThreadPost({ ...thread, numbered: false }, 0, xSpec).text).toBe('Thanks @ScottHanselman');
+    expect(renderThreadPost({ ...thread, numbered: false }, 0, xSpec).text).toBe('Thanks @ScottHanselman\n\n1/2');
     expect(renderThreadPost(thread, 0, xSpec).summary.count).toBe(countCharacters('Thanks @ScottHanselman\n\n1/2', 'x-weighted'));
   });
 });
@@ -88,7 +88,13 @@ describe('thread storage validation', () => {
   it('accepts supported threads and projects only content fields', () => {
     const value = { x: { numbered: true, apiKey: 'not-content', posts: [{ id: 'a', text: 'Post', apiKey: 'not-content' }] } };
     expect(isPlatformThreads(value)).toBe(true);
-    expect(parsePlatformThreads(value)).toEqual({ x: { numbered: true, posts: [{ id: 'a', text: 'Post' }] } });
+    expect(parsePlatformThreads(value)).toEqual({ x: { numbered: true, customized: true, posts: [{ id: 'a', text: 'Post' }] } });
+  });
+
+  it('preserves automatic mode metadata and enables numbering for older unnumbered threads', () => {
+    const automatic = { x: { numbered: false, customized: false, posts: [{ id: 'a', text: 'Full thread' }] } };
+    expect(parsePlatformThreads(automatic)).toEqual({ x: { ...automatic.x, numbered: true } });
+    expect(isPlatformThreads({ x: { ...automatic.x, customized: 'yes' } })).toBe(false);
   });
 
   it.each([

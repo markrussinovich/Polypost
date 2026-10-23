@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Copy, ExternalLink, ListOrdered, Loader, Pencil, RotateCcw, Sparkles } from 'lucide-react';
+import { AlertTriangle, Check, Copy, ExternalLink, Loader, Pencil, RotateCcw, Sparkles } from 'lucide-react';
 
 import { copyLinkedInText, copyPlainText } from '../lib/clipboard';
 import { exportText, type EditorNode } from '../lib/exportText';
@@ -40,9 +40,8 @@ interface PlatformCardProps {
   onResync: () => void;
   onFit: () => void;
   thread?: PostThread;
-  threadSource?: string;
   threadingPaused?: boolean;
-  onSplitThread?: () => void;
+  onToggleThread?: (enabled: boolean) => void;
   onThreadChange?: (thread: PostThread) => void;
 }
 
@@ -68,9 +67,8 @@ export function PlatformCard({
   onResync,
   onFit,
   thread,
-  threadSource,
   threadingPaused = false,
-  onSplitThread,
+  onToggleThread,
   onThreadChange,
 }: PlatformCardProps) {
   const Icon = PLATFORM_ICONS[spec.id];
@@ -218,7 +216,7 @@ export function PlatformCard({
           ) : null}
         </span>
         <span className="platform-card-actions">
-          {aiReady && !isEditing && !thread ? (
+          {aiReady && !isEditing ? (
             <button type="button" className="card-icon-button card-ai-button" title={`Suggest AI changes for ${spec.label}`} aria-label={`Suggest AI changes for ${spec.label}`} disabled={isGenerating} onClick={onFit}>
               <Sparkles aria-hidden="true" size={15} />
             </button>
@@ -239,6 +237,25 @@ export function PlatformCard({
           ))}
         </span>
       </header>
+
+      {spec.capabilities.threads && onToggleThread ? (
+        <div className="post-thread-mode">
+          <label className="field-row toggle-row">
+            <input
+              type="checkbox"
+              role="switch"
+              aria-label={`Split ${spec.label} into a thread`}
+              checked={Boolean(thread)}
+              disabled={threadingPaused || isEditing}
+              onChange={(event) => onToggleThread(event.target.checked)}
+            />
+            Split into a thread
+          </label>
+          {thread ? (
+            <strong aria-live="polite">{thread.posts.length} {thread.posts.length === 1 ? 'post' : 'posts'}</strong>
+          ) : null}
+        </div>
+      ) : null}
 
       {thread && onThreadChange ? (
         <>
@@ -302,11 +319,6 @@ export function PlatformCard({
           <CharacterMeter summary={render.summary} disclaimer={spec.disclaimer} />
 
           <footer className="platform-card-buttons">
-            {spec.capabilities.threads && onSplitThread ? (
-              <button type="button" className="card-copy-button" disabled={threadingPaused || isEditing || !(threadSource ?? render.text).trim()} onClick={onSplitThread}>
-                <ListOrdered aria-hidden="true" size={15} /> Split into a thread
-              </button>
-            ) : null}
             {imagePreviewAttachment ? (
               <button type="button" className="card-copy-button" onClick={handleCopyImage}>
                 <Copy aria-hidden="true" size={15} />

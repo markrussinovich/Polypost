@@ -28,6 +28,22 @@ function changeAction(number: number, action: 'Accept' | 'Reject', rightClick = 
 }
 
 describe('main draft AI review', () => {
+  it('counts the reviewed result rather than deleted text and updates during in-place edits', () => {
+    render(<AiReview proposal={{ ...proposal, platform: undefined, after: doc('My new post! Extra words here.') }} busy={false} {...callbacks()} />);
+    const count = screen.getByLabelText('Main draft word count');
+    expect(count).toHaveTextContent('6 words');
+    const addedSentence = screen.getAllByRole('group', { name: /^Change / }).find((change) => change.textContent?.includes('Extra words here'))!;
+    fireEvent.click(addedSentence);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Reject change' }));
+    expect(count).toHaveTextContent('3 words');
+    const editable = screen.getAllByRole('textbox')[0];
+    editable.textContent = 'Your wonderful ';
+    fireEvent.input(editable);
+    expect(count).toHaveTextContent('4 words');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'View changes applied' }));
+    expect(count).toHaveTextContent('4 words');
+  });
+
   it('hides per-change actions until a change is clicked', () => {
     render(<AiReview proposal={proposal} busy={false} {...callbacks()} />);
     expect(screen.getAllByRole('group', { name: /^Change / })).toHaveLength(2);

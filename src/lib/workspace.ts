@@ -51,7 +51,8 @@ export function togglePlatform(workspace: Workspace, id: PlatformId): Workspace 
 }
 
 export function isForked(workspace: Workspace, id: PlatformId): boolean {
-  return workspace.overrides[id] !== undefined || workspace.threads?.[id] !== undefined;
+  return workspace.overrides[id] !== undefined ||
+    (workspace.threads?.[id] !== undefined && workspace.threads[id]?.customized !== false);
 }
 
 // The single-post source; customized threads are stored separately.

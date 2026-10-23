@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 
-import { docToMarkdown } from '../lib/ai/docText';
+import { docToMarkdown, docToPlainText } from '../lib/ai/docText';
+import { countWords } from '../lib/counting';
+import { WordCount } from './WordCount';
 import { groupReviewChanges, reviewChanges, type AiProposal } from '../lib/ai/review';
 import { PLATFORMS_BY_ID } from '../lib/platforms';
 import { markdownToTipTap } from '../lib/markdownToTipTap';
@@ -24,6 +26,7 @@ function ReviewProposal({ proposal, busy, onAccept, onReject }: AiReviewProps) {
   const [decisions, setDecisions] = useState<Record<number, 'accepted' | 'rejected'>>({});
   const [edits, setEdits] = useState<Record<number, string>>({});
   const [appliedPreview, setAppliedPreview] = useState(false);
+  const [wordCount, setWordCount] = useState(() => countWords(docToPlainText(proposal.after)));
   const editValues = useRef(edits);
   const autoApplied = useRef(false);
   const [menu, setMenu] = useState<{ index: number; left: number; top: number; focus: boolean } | null>(null);
@@ -81,6 +84,10 @@ function ReviewProposal({ proposal, busy, onAccept, onReject }: AiReviewProps) {
     return text === before ? proposal.before : text === after ? proposal.after : markdownToTipTap(text);
   }
 
+  function updateWordCount(next = decisions) {
+    setWordCount(countWords(docToPlainText(reviewedDocument(next))));
+  }
+
   async function apply(next: typeof decisions) {
     setSaving(true);
     try {
@@ -109,6 +116,7 @@ function ReviewProposal({ proposal, busy, onAccept, onReject }: AiReviewProps) {
     editValues.current = nextEdits;
     setEdits(nextEdits);
     setDecisions(next);
+    updateWordCount(next);
     if (pending.length === 1) void apply(next);
   }
 
@@ -122,6 +130,7 @@ function ReviewProposal({ proposal, busy, onAccept, onReject }: AiReviewProps) {
       setEdits(nextEdits);
     }
     setDecisions(next);
+    updateWordCount(next);
     void apply(next);
   }
 
@@ -138,6 +147,7 @@ function ReviewProposal({ proposal, busy, onAccept, onReject }: AiReviewProps) {
       selection.removeAllRanges();
       selection.addRange(range);
       editValues.current = { ...editValues.current, [index]: element.textContent ?? '' };
+      updateWordCount();
     }
 
     return (
@@ -149,6 +159,7 @@ function ReviewProposal({ proposal, busy, onAccept, onReject }: AiReviewProps) {
         aria-multiline="true"
         onInput={(event) => {
           editValues.current = { ...editValues.current, [index]: event.currentTarget.textContent ?? '' };
+          updateWordCount();
         }}
         onPaste={(event) => {
           event.preventDefault();
@@ -220,6 +231,7 @@ function ReviewProposal({ proposal, busy, onAccept, onReject }: AiReviewProps) {
               {change.after ? <ins aria-label="Added text">{editable(change.after, index)}</ins> : null}
             </span>)}
       </div>
+      {!proposal.platform ? <WordCount count={wordCount} /> : null}
       {menu && !locked ? createPortal(
         <div
           ref={menuRef}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Copy, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, ExternalLink, Plus, Trash2 } from 'lucide-react';
 
 import { copyPlainText } from '../lib/clipboard';
 import { lastUrlInText } from '../lib/linkPreview';
@@ -19,7 +19,7 @@ interface ThreadEditorProps {
 }
 
 export function ThreadEditor({ spec, thread, onChange, linkPreviews, showLinkPreviews }: ThreadEditorProps) {
-  const [copyStatus, setCopyStatus] = useState<{ id: string | null; error: boolean } | null>(null);
+  const [copyStatus, setCopyStatus] = useState<{ id: string | null; message: string } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const focusPost = useRef<string | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
@@ -30,12 +30,20 @@ export function ThreadEditor({ spec, thread, onChange, linkPreviews, showLinkPre
     }
   }, [thread.posts, spec.id]);
 
-  async function copy(id: string | null, text: string) {
+  async function copy(id: string | null, text: string, openComposer = false) {
+    let copied = false;
     try {
       await copyPlainText(text);
-      setCopyStatus({ id, error: false });
+      copied = true;
+      const composer = spec.capabilities.openComposer;
+      if (openComposer && composer) {
+        const composerWindow = window.open(composer.url(text), '_blank');
+        if (!composerWindow) throw new Error('The composer window was blocked.');
+        composerWindow.opener = null;
+      }
+      setCopyStatus({ id, message: 'Copied!' });
     } catch {
-      setCopyStatus({ id, error: true });
+      setCopyStatus({ id, message: copied ? 'Copied; open failed' : 'Copy failed' });
     }
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setCopyStatus(null), 1800);
@@ -49,14 +57,6 @@ export function ThreadEditor({ spec, thread, onChange, linkPreviews, showLinkPre
 
   return (
     <div className="post-thread" role="group" aria-label={`${spec.label} thread`}>
-      <div className="post-thread-toolbar">
-        <strong>{thread.posts.length} {thread.posts.length === 1 ? 'post' : 'posts'}</strong>
-        <label className="field-row toggle-row">
-          <input type="checkbox" checked={thread.numbered} onChange={(event) => onChange({ ...thread, numbered: event.target.checked })} />
-          Number posts
-        </label>
-      </div>
-      <p className="post-thread-hint">Copy posts individually and publish each as a reply to the previous one. Threads are not posted automatically.</p>
       {spec.disclaimer ? <p className="post-thread-hint">{spec.disclaimer}</p> : null}
       <ol className="post-thread-list">
         {thread.posts.map((post, index) => {
@@ -91,17 +91,25 @@ export function ThreadEditor({ spec, thread, onChange, linkPreviews, showLinkPre
                   ...thread, posts: thread.posts.map((entry) => entry.id === post.id ? { ...entry, text: event.target.value } : entry),
                 })}
               />
-              {thread.numbered ? <div className="post-thread-number">{index + 1}/{thread.posts.length}</div> : null}
+              <div className="post-thread-number">{index + 1}/{thread.posts.length}</div>
               {previewUrl ? <CardLinkPreview url={previewUrl} preview={linkPreviews.get(previewUrl)} spec={spec} /> : null}
               {rendered.warnings.map((warning) => <p key={warning.id} className="platform-card-warning">{warning.message}</p>)}
               {empty || rendered.summary.status === 'over' ? (
                 <p className="post-thread-error" role="status">{empty ? 'This post is empty.' : 'Over the character limit. Edit this post or move text to another post; nothing has been truncated.'}</p>
               ) : null}
               <CharacterMeter summary={rendered.summary} />
-              <button type="button" className="card-copy-button" disabled={empty} aria-label={`Copy post ${index + 1}`} onClick={() => void copy(post.id, rendered.text)}>
-                <Copy aria-hidden="true" size={15} />
-                {copyStatus?.id === post.id ? copyStatus.error ? 'Copy failed' : 'Copied!' : 'Copy post'}
-              </button>
+              <div className="platform-card-buttons">
+                <button type="button" className="card-copy-button" disabled={empty} aria-label={`Copy post ${index + 1}`} onClick={() => void copy(post.id, rendered.text)}>
+                  <Copy aria-hidden="true" size={15} />
+                  {copyStatus?.id === post.id ? copyStatus.message : 'Copy post'}
+                </button>
+                {spec.capabilities.openComposer ? (
+                  <button type="button" className="card-copy-button" disabled={empty} aria-label={`Copy & open post ${index + 1}`} onClick={() => void copy(post.id, rendered.text, true)}>
+                    <ExternalLink aria-hidden="true" size={15} />
+                    Copy &amp; open
+                  </button>
+                ) : null}
+              </div>
             </li>
           );
         })}
@@ -116,7 +124,7 @@ export function ThreadEditor({ spec, thread, onChange, linkPreviews, showLinkPre
         </button>
         <button type="button" className="secondary-action" aria-label="Copy entire thread" onClick={() => void copy(null, thread.posts.map((_, index) => renderThreadPost(thread, index, spec).text).join('\n\n---\n\n'))}>
           <Copy aria-hidden="true" size={14} />
-          {copyStatus?.id === null ? copyStatus.error ? 'Copy failed' : 'Copied!' : 'Copy entire thread'}
+          {copyStatus?.id === null ? copyStatus.message : 'Copy entire thread'}
         </button>
       </div>
     </div>

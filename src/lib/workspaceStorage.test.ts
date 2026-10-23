@@ -23,7 +23,7 @@ describe('workspace storage', () => {
       overrides: { x: makeDoc('X variant') },
       enabledPlatforms: ['linkedin', 'x', 'bluesky'] as const,
       aiVersions: { bluesky: makeDoc('Accepted AI version') },
-      threads: { x: { numbered: true, posts: [{ id: 'a', text: 'First' }, { id: 'b', text: 'Second' }] } },
+      threads: { x: { numbered: true, customized: false, posts: [{ id: 'a', text: 'First' }, { id: 'b', text: 'Second' }] } },
     };
 
     expect(saveWorkspace({ ...input, enabledPlatforms: [...input.enabledPlatforms] }).ok).toBe(true);
@@ -34,6 +34,16 @@ describe('workspace storage', () => {
     expect(workspace?.enabledPlatforms).toEqual(['linkedin', 'x', 'bluesky']);
     expect(workspace?.aiVersions).toEqual(input.aiVersions);
     expect(workspace?.threads).toEqual(input.threads);
+  });
+
+  it.each([true, false])('protects existing threads and always enables numbering (previously %s)', (numbered) => {
+    window.localStorage.setItem(WORKSPACE_KEY, JSON.stringify({
+      version: 2, master: makeDoc('Master'), overrides: {}, enabledPlatforms: ['x'],
+      threads: { x: { numbered, posts: [{ id: 'saved', text: 'Previously edited thread' }] } },
+    }));
+    expect(loadWorkspace().workspace?.threads?.x).toEqual({
+      numbered: true, customized: true, posts: [{ id: 'saved', text: 'Previously edited thread' }],
+    });
   });
 
   it('migrates a legacy v1 draft into a v2 workspace without destroying the legacy key', () => {

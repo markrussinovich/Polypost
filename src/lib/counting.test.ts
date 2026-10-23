@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
-import { countCharacters } from './counting';
+import { countCharacters, countWords } from './counting';
+
+describe('countWords', () => {
+  it.each([
+    ['', 0],
+    [' \n\t ', 0],
+    ['Hello, world!', 2],
+    ['one\ttwo\nthree', 3],
+    ['... -- \u{1f680}', 0],
+    ["Caf\u00e9 don't", 2],
+    ['2026 launch', 2],
+  ])('counts words in %j', (text, expected) => {
+    expect(countWords(text)).toBe(expected);
+  });
+});
 
 describe('countCharacters', () => {
   describe('nfc-codepoints', () => {

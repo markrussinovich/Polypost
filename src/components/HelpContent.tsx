@@ -29,10 +29,11 @@ export function HelpContent({ webApp = false }: { webApp?: boolean }) {
       <section className="help-section">
         <h3>Threaded posts</h3>
         <ul className="help-list">
-          <li>Choose "Split into a thread" on X, Bluesky, or Threads. It uses the platform-specific edit if present, otherwise the full main draft, not a shortened AI version. AI is not required.</li>
-          <li>Splitting prefers paragraph, sentence, and word boundaries without breaking URLs or emoji. Each post has its own character count, including optional numbering. Long URLs and over-limit edits are flagged rather than truncated.</li>
-          <li>Edit, reorder, add, or remove posts. "Number posts" updates the numbering automatically. Threads are customized: later master edits and AI adaptation do not replace them. Re-sync removes the thread after confirmation.</li>
-          <li>Use "Copy post" and publish each segment manually as a reply to the previous post. "Copy entire thread" is a reference copy with separators, not a single publishable post. The shared image is available separately; add it to the post you choose.</li>
+          <li>Each X, Bluesky, and Threads card has its own "Split into a thread" toggle, off by default. Turning it on regenerates the full platform-specific edit or main draft with configured AI, without a total-length target, then splits the response into posts. It never starts from an AI-shortened version. Without AI, it splits the full source locally.</li>
+          <li>Splitting prefers paragraph, sentence, and word boundaries without breaking URLs or emoji. Posts are always numbered, and each character count includes its numbering. Long URLs and over-limit edits are flagged rather than truncated.</li>
+          <li>Automatic threads follow finalized source changes after a three-second pause, even with auto-fit off. Editing, reordering, adding, or removing posts protects that thread from automatic replacement. Previously saved threads remain protected and are now always numbered. Use the card's AI sparkle to explicitly regenerate the full thread.</li>
+          <li>Turn the toggle off to return to single-post fitting; customized threads are saved to recovery first. Re-sync removes the thread after confirmation. Incomplete AI responses that hit the model's output limit are reported, not applied.</li>
+          <li>Each segment has "Copy post" and, where supported, "Copy &amp; open", which copies that segment including its numbering and opens the platform composer. Opening the composer does not link posts: publish later segments manually as replies to the previous post. "Copy entire thread" is a reference copy with separators, not a single publishable post. The shared image is available separately; add it to the post you choose.</li>
           <li>Thread text, order, and numbering survive reloads and are included in saved drafts, recovery checkpoints, search, and backups.</li>
         </ul>
       </section>
@@ -63,7 +64,7 @@ export function HelpContent({ webApp = false }: { webApp?: boolean }) {
           </li>
           <li>Platform previews stay unchanged during AI writing and review, then refresh after a three-second pause once all changes are resolved.</li>
           <li>Toggle "View changes applied" for a clean preview without accepting or rejecting any changes.</li>
-          <li>Undo AI change restores the previous version until your next content edit. Recovery history also retains versions before and after acceptance.</li>
+          <li>Recovery history retains versions before and after AI acceptance.</li>
           <li>Add Style guidance in settings to steer the voice (e.g. "keep it light-hearted with a bit of humor").</li>
         </ul>
       </section>

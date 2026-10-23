@@ -19,7 +19,7 @@ function draft(title = 'Launch'): LibraryDraft {
     document: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Master draft' }] }] },
     overrides: { x: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Custom X' }] }] } },
     aiVersions: { bluesky: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Accepted AI' }] }] } },
-    threads: { x: { numbered: true, posts: [{ id: 'a', text: 'Thread first' }, { id: 'b', text: 'Thread second' }] } },
+    threads: { x: { numbered: true, customized: false, posts: [{ id: 'a', text: 'Thread first' }, { id: 'b', text: 'Thread second' }] } },
     enabledPlatforms: ['linkedin', 'x', 'bluesky'],
     sources: [{ id: 'source', kind: 'text', title: 'Background', text: 'Reference', charCount: 9, status: 'ready' }],
     attachments: [{ id: 'image', kind: 'image', name: 'image.png', dataUrl: 'data:image/png;base64,aGVsbG8=', mime: 'image/png', size: 5 }],
