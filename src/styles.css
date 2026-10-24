@@ -1622,13 +1622,6 @@ h2 {
   line-height: 1.4;
 }
 
-.post-thread-mode > strong {
-  margin-left: auto;
-  font-size: inherit;
-  white-space: nowrap;
-  text-align: right;
-}
-
 .post-thread-mode input[role='switch'] {
   appearance: none;
   position: relative;
@@ -1673,8 +1666,7 @@ h2 {
   opacity: 0.5;
 }
 
-.post-thread-post-header,
-.post-thread-footer {
+.post-thread-navigation {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1708,9 +1700,24 @@ h2 {
   border-color: var(--danger);
 }
 
-.post-thread-post-header label {
+.post-thread-navigation {
+  margin-bottom: 8px;
+}
+
+.post-thread-navigation label {
   font-size: 0.85rem;
   font-weight: 700;
+}
+
+.post-thread-copy-actions {
+  padding: 0;
+  border: 0;
+}
+
+.post-thread-copy-status {
+  margin: 8px 0 0;
+  color: var(--cp-text-muted);
+  font-size: 0.8rem;
 }
 
 .post-thread-post textarea {

@@ -254,9 +254,6 @@ export function PlatformCard({
             />
             Split into a thread
           </label>
-          {thread ? (
-            <strong aria-live="polite">{thread.posts.length} {thread.posts.length === 1 ? 'post' : 'posts'}</strong>
-          ) : null}
         </div>
       ) : null}
 

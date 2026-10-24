@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { copyPlainText } from '../lib/clipboard';
@@ -31,38 +31,38 @@ describe('thread editor', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'X post 1 text' }), { target: { value: 'Edited' } });
     const post = screen.getByRole('listitem', { name: 'X post 1' });
     expect(post.querySelector('.character-meter strong')).toHaveTextContent('11');
-    await act(async () => { fireEvent.click(within(post).getByRole('button', { name: 'Copy post 1' })); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Copy post 1' })); });
     expect(copyPlainText).toHaveBeenLastCalledWith('Edited\n\n1/2');
-    expect(within(post).getByText('Copied!')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Post 1 copied!');
+    expect(screen.getByRole('textbox', { name: 'X post 2 text' })).toHaveValue('Second post');
+    expect(post).not.toBeVisible();
     expect(screen.queryByRole('checkbox', { name: 'Number posts' })).toBeNull();
   });
 
-  it('reorders posts without remounting their editors and recalculates numbering', async () => {
-    setup();
-    const first = screen.getByRole('textbox', { name: 'X post 1 text' });
-    expect(screen.getByRole('button', { name: 'Move post 1 up' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Move post 2 down' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Move post 1 down' }));
-    expect(screen.getByRole('textbox', { name: 'X post 2 text' })).toBe(first);
-    expect(screen.getByRole('textbox', { name: 'X post 1 text' })).toHaveValue('Second post');
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Copy post 1' })); });
-    expect(copyPlainText).toHaveBeenLastCalledWith('Second post\n\n1/2');
-    fireEvent.click(screen.getByRole('button', { name: 'Move post 2 up' }));
-    expect(screen.getByRole('textbox', { name: 'X post 1 text' })).toBe(first);
+  it.each([xSpec, blueskySpec, threadsSpec])('omits unnecessary thread controls for $label while keeping navigation and removal', (spec) => {
+    setup(initial, spec);
+    expect(screen.queryByRole('button', { name: /Move post \d+ (up|down)/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add post' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Copy entire thread' })).toBeNull();
+    expect(screen.getByRole('button', { name: `Previous ${spec.label} thread post` })).toBeEnabled();
+    expect(screen.getByRole('button', { name: `Next ${spec.label} thread post` })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Remove post 1' })).toBeEnabled();
   });
 
-  it('adds and removes posts without removing the last editor', () => {
-    setup();
-    fireEvent.click(screen.getByRole('button', { name: 'Add post' }));
-    expect(screen.getAllByRole('textbox')).toHaveLength(3);
+  it('removes posts without removing the last editor and disables copying empty posts', () => {
+    setup({ ...initial, posts: [...initial.posts, { id: 'c', text: '' }] });
+    fireEvent.click(screen.getByRole('button', { name: 'Previous X thread post' }));
+    expect(screen.getAllByRole('textbox')).toHaveLength(1);
+    expect(screen.getAllByRole('textbox', { hidden: true })).toHaveLength(3);
     expect(screen.getByRole('textbox', { name: 'X post 3 text' })).toHaveValue('');
-    expect(screen.getByRole('textbox', { name: 'X post 3 text' })).toHaveFocus();
     expect(screen.getByRole('button', { name: 'Copy post 3' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Copy & open post 3' })).toBeDisabled();
     expect(screen.getByRole('status')).toHaveTextContent('empty');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove post 3' }));
+    expect(screen.getAllByRole('textbox', { hidden: true })).toHaveLength(2);
+    expect(screen.getByRole('textbox', { name: 'X post 2 text' })).toHaveFocus();
     fireEvent.click(screen.getByRole('button', { name: 'Remove post 2' }));
-    expect(screen.getAllByRole('textbox')).toHaveLength(2);
-    fireEvent.click(screen.getByRole('button', { name: 'Remove post 2' }));
+    expect(screen.getByRole('textbox', { name: 'X post 1 text' })).toHaveFocus();
     expect(screen.getByRole('button', { name: 'Remove post 1' })).toBeDisabled();
     expect(screen.getByText('1/1')).toBeInTheDocument();
   });
@@ -82,10 +82,12 @@ describe('thread editor', () => {
       return window;
     });
     setup(initial, spec);
+    fireEvent.click(screen.getByRole('button', { name: `Next ${spec.label} thread post` }));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Copy & open post 2' })); });
     expect(open).toHaveBeenCalledWith(spec.capabilities.openComposer!.url('Second post\n\n2/2'), '_blank');
     expect(window.opener).toBeNull();
-    expect(screen.getByText('Copied!')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Post 2 copied!');
+    expect(screen.getByRole('textbox', { name: `${spec.label} post 1 text` })).toBeVisible();
   });
 
   it('opens the latest edited text with numbering rather than the original segment', async () => {
@@ -114,6 +116,7 @@ describe('thread editor', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Copy & open post 1' })); });
     expect(open).not.toHaveBeenCalled();
     expect(screen.getByText('Copy failed')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'X post 1 text' })).toBeVisible();
   });
 
   it.each(['blocked', 'throws'])('reports a composer that $s without misreporting the successful copy', async (failure) => {
@@ -124,7 +127,8 @@ describe('thread editor', () => {
     setup();
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Copy & open post 1' })); });
     expect(copyPlainText).toHaveBeenLastCalledWith('First post\n\n1/2');
-    expect(screen.getByText('Copied; open failed')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Post 1 copied; open failed');
+    expect(screen.getByRole('textbox', { name: 'X post 2 text' })).toBeVisible();
   });
 
   it('keeps copy available without offering unsupported composer actions', () => {
@@ -133,12 +137,120 @@ describe('thread editor', () => {
     expect(screen.queryByRole('button', { name: /Copy & open/ })).toBeNull();
   });
 
-  it('copies a portable whole thread and surfaces clipboard failures', async () => {
+  it('surfaces clipboard failures without advancing to another post', async () => {
     setup();
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Copy entire thread' })); });
-    expect(copyPlainText).toHaveBeenLastCalledWith('First post\n\n1/2\n\n---\n\nSecond post\n\n2/2');
     vi.mocked(copyPlainText).mockRejectedValueOnce(new Error('Clipboard denied'));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Copy post 1' })); });
     expect(screen.getByText('Copy failed')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'X post 1 text' })).toBeVisible();
+  });
+
+  it('shows only one card and wraps in both directions without losing edits or editor identity', () => {
+    const changed = setup();
+    const first = screen.getByRole('textbox', { name: 'X post 1 text' });
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.getByText('Post 1 of 2')).toBeVisible();
+    const previous = screen.getByRole('button', { name: 'Previous X thread post' });
+    const next = screen.getByRole('button', { name: 'Next X thread post' });
+    previous.focus();
+    fireEvent.click(previous);
+    expect(previous).toHaveFocus();
+    expect(screen.getByRole('textbox', { name: 'X post 2 text' })).toHaveValue('Second post');
+    expect(screen.getAllByRole('textbox')).toHaveLength(1);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Edited second post' } });
+    fireEvent.click(next);
+    expect(screen.getByRole('textbox')).toBe(first);
+    fireEvent.click(next);
+    expect(screen.getByRole('textbox')).toHaveValue('Edited second post');
+    fireEvent.click(next);
+    expect(screen.getByRole('textbox')).toBe(first);
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([xSpec, blueskySpec, threadsSpec])('advances after each copy and wraps to the first $label post without losing button focus', async (spec) => {
+    const changed = setup({ ...initial, posts: [...initial.posts, { id: 'c', text: 'Third post' }] }, spec);
+    const copyButton = screen.getByRole('button', { name: 'Copy post 1' });
+    copyButton.focus();
+    for (let index = 0; index < 3; index++) {
+      await act(async () => { fireEvent.click(copyButton); });
+      expect(copyPlainText).toHaveBeenLastCalledWith(`${['First post', 'Second post', 'Third post'][index]}\n\n${index + 1}/3`);
+      expect(screen.getByText(`Post ${(index + 1) % 3 + 1} of 3`)).toBeVisible();
+      expect(screen.getAllByRole('textbox')).toHaveLength(1);
+      expect(copyButton).toHaveFocus();
+    }
+    expect(screen.getByRole('textbox')).toHaveValue('First post');
+    expect(changed).not.toHaveBeenCalled();
+  });
+
+  it('keeps a single-post thread on its only card after copying and disables navigation', async () => {
+    setup({ ...initial, posts: [initial.posts[0]] });
+    expect(screen.getByRole('button', { name: 'Previous X thread post' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next X thread post' })).toBeDisabled();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Copy post 1' })); });
+    expect(copyPlainText).toHaveBeenLastCalledWith('First post\n\n1/1');
+    expect(screen.getByRole('textbox')).toHaveValue('First post');
+    expect(screen.getByRole('status')).toHaveTextContent('Post 1 copied!');
+  });
+
+  it('selects and focuses the next card after removing the first or middle card', () => {
+    setup({ ...initial, posts: [...initial.posts, { id: 'c', text: 'Third post' }] });
+    fireEvent.click(screen.getByRole('button', { name: 'Next X thread post' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove post 2' }));
+    expect(screen.getByRole('textbox')).toHaveValue('Third post');
+    expect(screen.getByRole('textbox')).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: 'Next X thread post' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove post 1' }));
+    expect(screen.getByRole('textbox')).toHaveValue('Third post');
+    expect(screen.getByRole('textbox')).toHaveFocus();
+    expect(screen.getByText('Post 1 of 1')).toBeVisible();
+  });
+
+  it('disables duplicate copy actions and does not override navigation during a pending copy', async () => {
+    let resolveCopy!: () => void;
+    vi.mocked(copyPlainText).mockImplementationOnce(() => new Promise((resolve) => { resolveCopy = resolve; }));
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy post 1' }));
+    expect(screen.getByRole('button', { name: 'Copy post 1' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Copy & open post 1' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Next X thread post' }));
+    await act(async () => { resolveCopy(); });
+    expect(screen.getByRole('textbox')).toHaveValue('Second post');
+    expect(screen.getByRole('button', { name: 'Copy post 2' })).toBeEnabled();
+    expect(copyPlainText).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not advance past edits made while copying', async () => {
+    let resolveCopy!: () => void;
+    vi.mocked(copyPlainText).mockImplementationOnce(() => new Promise((resolve) => { resolveCopy = resolve; }));
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy post 1' }));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Newer edit' } });
+    await act(async () => { resolveCopy(); });
+    expect(copyPlainText).toHaveBeenLastCalledWith('First post\n\n1/2');
+    expect(screen.getByRole('textbox')).toHaveValue('Newer edit');
+  });
+
+  it('returns to the first card when the thread is regenerated and ignores a pending copy of the old thread', async () => {
+    let resolveCopy!: () => void;
+    vi.mocked(copyPlainText).mockImplementationOnce(() => new Promise((resolve) => { resolveCopy = resolve; }));
+    const props = { spec: xSpec, onChange: vi.fn(), linkPreviews: new Map(), showLinkPreviews: true };
+    const view = render(<ThreadEditor {...props} thread={initial} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Next X thread post' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy post 2' }));
+    view.rerender(<ThreadEditor {...props} thread={{ ...initial, posts: [{ id: 'new-a', text: 'New first' }, { id: 'new-b', text: 'New second' }] }} />);
+    await act(async () => { resolveCopy(); });
+    expect(screen.getByRole('textbox')).toHaveValue('New first');
+    expect(screen.getByText('Post 1 of 2')).toBeVisible();
+  });
+
+  it('does not open a composer after the thread editor unmounts during copying', async () => {
+    let resolveCopy!: () => void;
+    vi.mocked(copyPlainText).mockImplementationOnce(() => new Promise((resolve) => { resolveCopy = resolve; }));
+    const open = vi.spyOn(window, 'open').mockReturnValue(window);
+    const view = render(<ThreadEditor spec={xSpec} thread={initial} onChange={vi.fn()} linkPreviews={new Map()} showLinkPreviews />);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy & open post 1' }));
+    view.unmount();
+    await act(async () => { resolveCopy(); });
+    expect(open).not.toHaveBeenCalled();
   });
 });
