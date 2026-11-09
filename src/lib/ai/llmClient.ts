@@ -11,7 +11,14 @@ export interface GenerateOptions {
 
 export class LlmError extends Error {}
 
+class TokenLimitError extends LlmError {
+  constructor() {
+    super('The model reached its token limit before finishing the post. Try again or choose a model with a larger output budget.');
+  }
+}
+
 const DEFAULT_MAX_TOKENS = 2048;
+const MAX_GENERATION_ATTEMPTS = 3;
 const ANTHROPIC_VERSION = '2023-06-01';
 
 function trimTrailingSlash(url: string): string {
@@ -21,15 +28,28 @@ function trimTrailingSlash(url: string): string {
 // Single entry point for all supported API shapes. Returns the model's plain-text reply.
 export async function generateText({ config, system, prompt, maxTokens = DEFAULT_MAX_TOKENS, requireComplete = false, signal }: GenerateOptions): Promise<string> {
   try {
-    if (config.provider === 'anthropic') {
-      return await generateAnthropic({ config, system, prompt, maxTokens, requireComplete, signal });
-    }
+    for (let attempt = 0; ; attempt += 1) {
+      signal?.throwIfAborted();
+      const options = { config, system, prompt, maxTokens: maxTokens * 2 ** attempt, requireComplete, signal };
 
-    if (config.provider === 'gemini') {
-      return await generateGemini({ config, system, prompt, maxTokens, requireComplete, signal });
-    }
+      try {
+        if (config.provider === 'anthropic') {
+          return await generateAnthropic(options);
+        }
 
-    return await generateOpenAI({ config, system, prompt, maxTokens, requireComplete, signal });
+        if (config.provider === 'gemini') {
+          return await generateGemini(options);
+        }
+
+        return await generateOpenAI(options);
+      } catch (error) {
+        // Reasoning can consume most of the output budget, leaving even a
+        // short post unfinished. Regenerate rather than publish that fragment.
+        if (!(error instanceof TokenLimitError) || attempt + 1 >= MAX_GENERATION_ATTEMPTS) {
+          throw error;
+        }
+      }
+    }
   } catch (error) {
     // Server error bodies can echo the request's credentials (some gateways
     // include the offending key in "incorrect API key" messages); every message
@@ -108,6 +128,9 @@ async function generateAnthropic({ config, system, prompt, maxTokens, requireCom
   }
 
   if (requireComplete && data?.stop_reason === 'max_tokens') throw incompleteResponse();
+  if (data?.stop_reason === 'max_tokens') {
+    throw new TokenLimitError();
+  }
 
   const text = Array.isArray(data?.content)
     ? data.content.filter((block: { type?: string }) => block?.type === 'text').map((block: { text?: string }) => block.text ?? '').join('')
@@ -148,6 +171,9 @@ async function generateOpenAI({ config, system, prompt, maxTokens, requireComple
   }
 
   if (requireComplete && data?.choices?.[0]?.finish_reason === 'length') throw incompleteResponse();
+  if (data?.choices?.[0]?.finish_reason === 'length') {
+    throw new TokenLimitError();
+  }
 
   const text: string = data?.choices?.[0]?.message?.content ?? '';
 
@@ -181,6 +207,9 @@ async function generateGemini({ config, system, prompt, maxTokens, requireComple
   }
 
   if (requireComplete && data?.candidates?.[0]?.finishReason === 'MAX_TOKENS') throw incompleteResponse();
+  if (data?.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+    throw new TokenLimitError();
+  }
 
   const parts = data?.candidates?.[0]?.content?.parts;
   const text = Array.isArray(parts) ? parts.map((part: { text?: string }) => part.text ?? '').join('') : '';

@@ -188,7 +188,7 @@ describe('generateText response handling', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => data } as Response);
     const config = { ...defaultLlmConfig(), provider, enabled: true, apiKey: 'test' };
     await expect(generateText({ config, system: 's', prompt: 'p', requireComplete: true })).rejects.toThrow(/output limit/);
-    await expect(generateText({ config, system: 's', prompt: 'p' })).resolves.toBe('Partial draft');
+    await expect(generateText({ config, system: 's', prompt: 'p' })).rejects.toThrow(/token limit before finishing/);
   });
 });
 
