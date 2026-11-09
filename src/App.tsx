@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { HelpCircle, Moon, PanelLeftClose, PanelLeftOpen, Settings, Sun } from 'lucide-react';
 
 import { AiAssist } from './components/AiAssist';
+import { AiReview } from './components/AiReview';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { DraftHistoryPanel } from './components/DraftHistoryPanel';
 import { EditorShell } from './components/EditorShell';
@@ -14,16 +15,19 @@ import { PolypostMark } from './components/PolypostMark';
 import { UpdatePrompt } from './components/UpdatePrompt';
 import { PlatformRail } from './components/PlatformRail';
 import { PlatformToggleChips } from './components/PlatformToggleChips';
+import { WordCount } from './components/WordCount';
+import { countWords } from './lib/counting';
 import { loadTheme, saveTheme, type Theme } from './lib/theme';
 import { selectAutofit } from './lib/ai/autofit';
 import { isLlmReady, loadLlmConfig, saveLlmConfig, type LlmConfig } from './lib/ai/config';
 import { docToMarkdown, docToPlainText } from './lib/ai/docText';
+import type { AiProposal } from './lib/ai/review';
 import { buildSourcesBlock, cleanSourceTitle, loadSources, saveSources, MAX_TITLE_CHARS, type Source } from './lib/ai/sources';
 import { markdownToTipTap } from './lib/markdownToTipTap';
 import { fetchLinkPreview, lastUrlInText, shouldRefreshLinkPreview } from './lib/linkPreview';
 import { restoreDraftAttachments, revokeAttachment, serializeAttachmentsForDraft, type Attachment, type LinkPreview } from './lib/media';
 import { clearActiveAttachment, loadActiveAttachment, putActiveAttachment } from './lib/attachmentStore';
-import { generateFit } from './lib/ai/fit';
+import { generateFit, generateThread } from './lib/ai/fit';
 import { generateText } from './lib/ai/llmClient';
 import { buildAuthorRequest, buildSourceTitleRequest } from './lib/ai/prompts';
 import { APP_NAME } from './lib/constants';
@@ -34,18 +38,26 @@ import {
   PLATFORMS_BY_ID,
   renderForPlatform,
 } from './lib/platforms';
-import type { PlatformId, PlatformRender } from './lib/platforms/types';
+import type { PlatformId, PlatformRender, PlatformSpec } from './lib/platforms/types';
+import { parsePlatformThreads, renderThreadPost, splitThreadText, type PlatformThreads, type PostThread } from './lib/postThreads';
 import {
-  deleteDraftSnapshot,
-  loadDraftHistory,
   loadWorkspace,
-  saveDraftSnapshot,
+  createDraftId,
   saveWorkspace,
-  type DraftSnapshot,
 } from './lib/storage';
+import {
+  createLibraryDraft,
+  deleteLibraryDraft,
+  exportLibraryBackup,
+  importLibraryBackup,
+  listLibraryDrafts,
+  saveLibraryDraft,
+  type LibraryDraft,
+} from './lib/draftLibrary';
 import {
   applyMasterEdit,
   applyPaneEdit,
+  applyThreadEdit,
   dormantPlatforms,
   resyncPlatform,
   togglePlatform,
@@ -65,7 +77,8 @@ type ConfirmAction =
   | { kind: 'resync'; id: PlatformId }
   | { kind: 'reset' }
   | { kind: 'replace'; document: EditorNode }
-  | { kind: 'restore'; draft: DraftSnapshot };
+  | { kind: 'restore'; draft: LibraryDraft }
+  | { kind: 'delete'; draft: LibraryDraft };
 
 function App() {
   const [initialLoad] = useState(loadWorkspace);
@@ -73,17 +86,20 @@ function App() {
     master: initialLoad.workspace?.master ?? EMPTY_DOCUMENT,
     overrides: initialLoad.workspace?.overrides ?? {},
     enabledPlatforms: initialLoad.workspace?.enabledPlatforms ?? DEFAULT_ENABLED_PLATFORMS,
+    threads: initialLoad.workspace?.threads ?? {},
   }));
   const [editorVersion, setEditorVersion] = useState(0);
   // Bumped on every master content change; keys non-forked pane editors so they
   // reseed from the updated master.
   const [masterVersion, setMasterVersion] = useState(0);
   const [activePaneEditor, setActivePaneEditor] = useState<PlatformId | null>(null);
-  const [draftHistory, setDraftHistory] = useState<DraftSnapshot[]>(loadDraftHistory);
+  const [draftHistory, setDraftHistory] = useState<LibraryDraft[]>([]);
+  const [libraryReady, setLibraryReady] = useState(false);
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
   const [storageNotice, setStorageNotice] = useState<string | null>(() => initialLoad.error ?? null);
 
-  // AI state. aiVersions holds session-only LLM-fitted versions (not persisted);
-  // they take effect only for platforms the user hasn't manually forked.
+  // Accepted AI variants persist alongside the workspace. Suggestions are staged
+  // separately so generation never replaces the author's text.
   const [llmConfig, setLlmConfig] = useState<LlmConfig>(loadLlmConfig);
   const [showSettings, setShowSettings] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -92,15 +108,26 @@ function App() {
   // Only offered when more than 2 platforms are enabled.
   const [editorCollapsed, setEditorCollapsed] = useState(false);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
-  const [aiVersions, setAiVersions] = useState<Map<PlatformId, EditorNode>>(() => new Map());
+  const [aiVersions, setAiVersions] = useState<Map<PlatformId, EditorNode>>(
+    () => new Map(Object.entries(initialLoad.workspace?.aiVersions ?? {}) as [PlatformId, EditorNode][]),
+  );
+  const [proposals, setProposals] = useState<Map<string, AiProposal>>(() => new Map());
+  const proposalsRef = useRef(proposals);
+  proposalsRef.current = proposals;
   const [generating, setGenerating] = useState<Set<PlatformId>>(() => new Set());
   const [aiError, setAiError] = useState<string | null>(null);
   const [authorBusy, setAuthorBusy] = useState(false);
   const [authorError, setAuthorError] = useState<string | null>(null);
+  const [platformBaseline, setPlatformBaseline] = useState<{
+    master: EditorNode; versions: Map<PlatformId, EditorNode>; masterVersion: number;
+  } | null>(null);
+  const reviewingMaster = proposals.has('master');
+  const displayedVersions = platformBaseline?.versions ?? aiVersions;
 
   // Reference material handed to the AI as background (persisted).
   const [sources, setSources] = useState<Source[]>(loadSources);
   const [imageAttachment, setImageAttachment] = useState<Attachment | null>(null);
+  const [attachmentsLoaded, setAttachmentsLoaded] = useState(false);
   const [linkPreviews, setLinkPreviews] = useState<Map<string, LinkPreview>>(() => new Map());
   const [debouncedPlatformPreviewUrls, setDebouncedPlatformPreviewUrls] = useState<string[]>([]);
 
@@ -124,10 +151,16 @@ function App() {
   // What each platform's current AI version was generated from (master +
   // style), so an idle pause after an unrelated change (a fork edit, a chip
   // toggle) doesn't re-generate cards whose input hasn't changed.
-  const adaptedKeyRef = useRef<Map<PlatformId, string>>(new Map());
+  const adaptedKeyRef = useRef<Map<PlatformId, string>>(new Map(
+    [...aiVersions.keys()].map((id) => [id, makeAdaptKey(llmConfig.stylePrompt, docToMarkdown(workspace.master))]),
+  ));
   // Link preview states whose fetch has already been kicked off, so failed or
   // low-value metadata can retry once without looping forever.
   const startedPreviewKeys = useRef<Set<string>>(new Set());
+  const lastRecoveryKey = useRef<string | null>(null);
+  const contentKey = JSON.stringify([workspace, [...aiVersions], sources, imageAttachment?.id]);
+  const contentKeyRef = useRef(contentKey);
+  contentKeyRef.current = contentKey;
 
   // Apply + persist the color theme.
   useEffect(() => {
@@ -138,12 +171,25 @@ function App() {
   // Persist the whole workspace whenever it changes (debounce-free, as the
   // single-document autosave was). saveWorkspace is idempotent.
   useEffect(() => {
-    const result = saveWorkspace(workspace);
+    const result = saveWorkspace({ ...workspace, aiVersions: Object.fromEntries(aiVersions) });
 
     if (!result.ok) {
       setStorageNotice(result.message);
     }
-  }, [workspace]);
+  }, [workspace, aiVersions]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listLibraryDrafts().then((drafts) => {
+      if (!cancelled) {
+        setDraftHistory(drafts);
+        setLibraryReady(true);
+      }
+    }).catch((error: unknown) => {
+      if (!cancelled) setStorageNotice(storageError(error));
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // Persist AI sources.
   useEffect(() => {
@@ -156,6 +202,7 @@ function App() {
     let cancelled = false;
 
     void loadActiveAttachment().then((restored) => {
+      if (!cancelled) setAttachmentsLoaded(true);
       if (!restored) {
         return;
       }
@@ -180,24 +227,45 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!libraryReady || !attachmentsLoaded || !hasUnsavedContent()) return;
+    const handle = window.setTimeout(() => {
+      void saveRecovery('Automatic recovery');
+    }, 10000);
+    return () => window.clearTimeout(handle);
+    // Capture the entire workspace, not just the master text.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace, aiVersions, sources, imageAttachment, libraryReady, attachmentsLoaded]);
+
+  useEffect(() => () => {
+    fitAbortRef.current?.abort();
+    manualFitRef.current?.controller.abort();
+    authorAbortRef.current?.abort();
+  }, []);
+
   // One render + seed document per enabled platform. The document each platform
   // renders/edits from: a user fork wins, then an AI-fitted version, then master.
-  const { platformRenders, platformDocuments } = useMemo(() => {
+  const { platformRenders, platformDocuments, threadingNeededIds } = useMemo(() => {
     const renders = new Map<PlatformId, PlatformRender>();
     const documents = new Map<PlatformId, EditorNode>();
+    const threadingNeededIds = new Set<PlatformId>();
 
     for (const id of workspace.enabledPlatforms) {
       const spec = PLATFORMS_BY_ID[id];
 
       if (spec) {
-        const doc = workspace.overrides[id] ?? aiVersions.get(id) ?? workspace.master;
+        const doc = workspace.overrides[id] ?? displayedVersions.get(id) ?? platformBaseline?.master ?? workspace.master;
         documents.set(id, doc);
         renders.set(id, renderForPlatform(doc, spec));
+        const source = workspace.overrides[id] ?? platformBaseline?.master ?? workspace.master;
+        if (spec.capabilities.threads && renderForPlatform(source, spec).summary.count > spec.charLimit) {
+          threadingNeededIds.add(id);
+        }
       }
     }
 
-    return { platformRenders: renders, platformDocuments: documents };
-  }, [workspace, aiVersions]);
+    return { platformRenders: renders, platformDocuments: documents, threadingNeededIds };
+  }, [workspace, displayedVersions, platformBaseline]);
 
   const platformPreviewUrls = useMemo(() => {
     if (imageAttachment) {
@@ -209,15 +277,18 @@ function App() {
     for (const id of workspace.enabledPlatforms) {
       const spec = PLATFORMS_BY_ID[id];
       const render = platformRenders.get(id);
-      const url = spec?.linkPreview && render ? lastUrlInText(render.text) : undefined;
-
-      if (url) {
-        urls.add(url);
+      const thread = workspace.threads?.[id];
+      const texts = thread
+        ? thread.posts.map((_, index) => renderThreadPost(thread, index, spec).text)
+        : render ? [render.text] : [];
+      for (const text of texts) {
+        const url = spec?.linkPreview ? lastUrlInText(text) : undefined;
+        if (url) urls.add(url);
       }
     }
 
     return [...urls];
-  }, [imageAttachment, platformRenders, workspace.enabledPlatforms]);
+  }, [imageAttachment, platformRenders, workspace.enabledPlatforms, workspace.threads]);
 
   useEffect(() => {
     if (imageAttachment) {
@@ -263,23 +334,32 @@ function App() {
   }, [debouncedPlatformPreviewUrls, linkPreviews]);
 
   const enabledSpecs = PLATFORMS.filter((spec) => workspace.enabledPlatforms.includes(spec.id));
-  const forkedIds = useMemo(() => new Set(Object.keys(workspace.overrides) as PlatformId[]), [workspace.overrides]);
+  const forkedIds = useMemo(() => new Set([
+    ...Object.keys(workspace.overrides),
+    ...Object.entries(workspace.threads ?? {}).filter(([, thread]) => thread.customized !== false).map(([id]) => id),
+  ] as PlatformId[]), [workspace.overrides, workspace.threads]);
+  const hasAutomaticThreads = Object.values(workspace.threads ?? {}).some((thread) => thread.customized === false);
   const aiAdaptedIds = useMemo(() => {
     const ids = new Set<PlatformId>();
-    for (const id of aiVersions.keys()) {
-      if (!(id in workspace.overrides)) {
+    for (const id of displayedVersions.keys()) {
+      if (!(id in workspace.overrides) && !workspace.threads?.[id]) {
         ids.add(id);
       }
     }
     return ids;
-  }, [aiVersions, workspace.overrides]);
+  }, [displayedVersions, workspace.overrides, workspace.threads]);
   const dormant = dormantPlatforms(workspace);
   const isEditorCollapsed = editorCollapsed;
 
-  // Auto-adapt: after a typing pause, rewrite enabled, non-forked platforms for
-  // style guidance and/or over-limit auto-fit, then drop stale AI versions.
   useEffect(() => {
-    if (!aiReady || !shouldAutoAdapt(llmConfig)) {
+    if (!platformBaseline || authorBusy || reviewingMaster) return;
+    const handle = window.setTimeout(() => setPlatformBaseline(null), AUTOFIT_IDLE_MS);
+    return () => window.clearTimeout(handle);
+  }, [platformBaseline, authorBusy, reviewingMaster, workspace.master]);
+
+  // Restart the idle delay only after the main draft's review is final.
+  useEffect(() => {
+    if ((!aiReady && !hasAutomaticThreads) || authorBusy || reviewingMaster) {
       return;
     }
 
@@ -291,10 +371,10 @@ function App() {
     // runAutoAdapt reads the latest workspace via this effect's closure; it re-runs
     // (resetting the timer) on every master/platform/override/config change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace.master, workspace.enabledPlatforms, workspace.overrides, llmConfig]);
+  }, [workspace.master, workspace.enabledPlatforms, workspace.overrides, workspace.threads, llmConfig, authorBusy, reviewingMaster]);
 
   async function runAutoAdapt(config: LlmConfig) {
-    if (!isLlmReady(config) || !shouldAutoAdapt(config)) {
+    if (authorBusy || proposalsRef.current.has('master')) {
       return;
     }
 
@@ -306,22 +386,15 @@ function App() {
     // leaves its platform (and its badge) alone.
     const manualId = manualFitRef.current?.id ?? null;
 
-    const selection = selectAutoAdapt(config, workspace.master, workspace.enabledPlatforms, workspace.overrides, aiVersionsRef.current);
-
-    if (selection.toClear.length > 0) {
-      setAiVersions((prev) => {
-        const next = new Map(prev);
-        selection.toClear.forEach((id) => next.delete(id));
-        return next;
-      });
-    }
-
-    const masterText = docToPlainText(workspace.master);
-    const masterMarkdown = docToMarkdown(workspace.master);
-    const adaptKey = makeAdaptKey(config.stylePrompt, masterMarkdown);
-    const toFit = selection.toFit.filter(
-      (id) => id !== manualId && !(adaptedKeyRef.current.get(id) === adaptKey && aiVersionsRef.current.has(id)),
+    const ready = isLlmReady(config);
+    const targets = selectAutoAdapt(config, workspace.master, workspace.enabledPlatforms, workspace.overrides, aiVersionsRef.current, workspace.threads);
+    const keyFor = (id: PlatformId) => makeAdaptKey(
+      config.stylePrompt,
+      docToMarkdown(workspace.threads?.[id] ? workspace.overrides[id] ?? workspace.master : workspace.master),
+      Boolean(workspace.threads?.[id]),
     );
+    const toFit = targets.filter((id) =>
+      id !== manualId && (ready || workspace.threads?.[id]) && adaptedKeyRef.current.get(id) !== keyFor(id));
 
     if (toFit.length === 0) {
       // The abort above orphaned any badges the superseded run was showing
@@ -342,15 +415,31 @@ function App() {
         const spec = PLATFORMS_BY_ID[id];
 
         try {
-          // generateFit re-checks the length and regenerates automatically; we
-          // always show its best result without surfacing an over-limit notice.
-          // Styling-capable platforms get the Markdown master so the author's
-          // bold/italic/lists survive; plain-text platforms can't show them.
-          const result = await generateFit({ config, spec, masterText: spec.allowUnicodeStyling ? masterMarkdown : masterText, style: config.stylePrompt, signal: controller.signal });
-
-          if (!controller.signal.aborted) {
-            adaptedKeyRef.current.set(id, adaptKey);
+          const before = aiVersionsRef.current.get(id) ?? workspace.master;
+          const thread = workspace.threads?.[id];
+          const source = thread ? workspace.overrides[id] ?? workspace.master : workspace.master;
+          const options = {
+            config, spec, masterText: spec.allowUnicodeStyling ? docToMarkdown(source) : docToPlainText(source),
+            style: config.stylePrompt, signal: controller.signal,
+          };
+          const result = thread
+            ? { doc: ready && docToPlainText(source).trim() ? await generateThread(options) : source, truncated: false }
+            : await generateFit(options);
+          const current = workspaceRef.current;
+          if (controller.signal.aborted || current.master !== workspace.master) return;
+          if (thread) {
+            const currentThread = current.threads?.[id];
+            if (currentThread?.posts !== thread.posts || currentThread.customized !== false ||
+                current.overrides[id] !== workspace.overrides[id]) return;
+            adaptedKeyRef.current.set(id, keyFor(id));
+            const next = makeThread(renderForPlatform(result.doc, spec).text, spec);
+            setWorkspace((prev) => applyThreadEdit(prev, id, next));
+            clearAiVersion(id);
+          } else if (current.overrides[id] === undefined && !current.threads?.[id] &&
+              (aiVersionsRef.current.get(id) ?? current.master) === before) {
+            adaptedKeyRef.current.set(id, keyFor(id));
             setAiVersions((prev) => new Map(prev).set(id, result.doc));
+            if (result.truncated) setAiError(`${spec.label}: AI version was cut to fit.`);
           }
         } catch (error) {
           if (!controller.signal.aborted) {
@@ -370,10 +459,10 @@ function App() {
     );
   }
 
-  async function handleFit(id: PlatformId) {
+  async function handleFit(id: PlatformId, thread: PostThread | null = workspace.threads?.[id] ?? null) {
     const spec = PLATFORMS_BY_ID[id];
 
-    if (!aiReady || !spec) {
+    if (!aiReady || !spec || authorBusy || reviewingMaster || platformBaseline) {
       return;
     }
 
@@ -386,14 +475,19 @@ function App() {
 
     const masterAtRequest = workspace.master;
     const overrideAtRequest = workspace.overrides[id];
+    const versionAtRequest = aiVersions.get(id);
+    const before = thread ? overrideAtRequest ?? masterAtRequest : overrideAtRequest ?? versionAtRequest ?? masterAtRequest;
 
     setGenerating(new Set([id]));
     setAiError(null);
 
     try {
-      const masterMarkdown = docToMarkdown(workspace.master);
-      const masterText = spec.allowUnicodeStyling ? masterMarkdown : docToPlainText(workspace.master);
-      const result = await generateFit({ config: llmConfig, spec, masterText, style: llmConfig.stylePrompt, signal: controller.signal });
+      const masterMarkdown = docToMarkdown(before);
+      const masterText = spec.allowUnicodeStyling ? masterMarkdown : docToPlainText(before);
+      const options = { config: llmConfig, spec, masterText, style: llmConfig.stylePrompt, signal: controller.signal };
+      const result = thread
+        ? { doc: await generateThread(options), truncated: false }
+        : await generateFit(options);
 
       if (controller.signal.aborted) {
         return;
@@ -403,18 +497,25 @@ function App() {
       // while the request ran — applying it would discard their newer work.
       const current = workspaceRef.current;
 
-      if (current.master !== masterAtRequest || current.overrides[id] !== overrideAtRequest) {
+      const currentThread = current.threads?.[id] ?? null;
+      if (current.master !== masterAtRequest || current.overrides[id] !== overrideAtRequest ||
+          Boolean(currentThread) !== Boolean(thread) ||
+          (thread ? currentThread?.posts !== thread.posts : aiVersionsRef.current.get(id) !== versionAtRequest)) {
         return;
       }
 
       // Record what this version was generated from so the idle pass doesn't
       // immediately regenerate (and visibly replace) the accepted result.
-      adaptedKeyRef.current.set(id, makeAdaptKey(llmConfig.stylePrompt, masterMarkdown));
-      // The sparkle only appears on a forked (edited) card, so applying the AI
-      // version means discarding the manual edit: drop the override so the AI
-      // version (which would otherwise be hidden behind it) becomes visible.
-      setWorkspace((prev) => resyncPlatform(prev, id));
-      setAiVersions((prev) => new Map(prev).set(id, result.doc));
+      adaptedKeyRef.current.set(id, makeAdaptKey(llmConfig.stylePrompt, docToMarkdown(thread ? before : masterAtRequest), Boolean(thread)));
+      if (currentThread) {
+        const next = makeThread(renderForPlatform(result.doc, spec).text, spec);
+        setWorkspace((prev) => applyThreadEdit(prev, id, next));
+        clearAiVersion(id);
+      } else {
+        setWorkspace((prev) => resyncPlatform(prev, id));
+        setAiVersions((prev) => new Map(prev).set(id, result.doc));
+      }
+      if (result.truncated) setAiError(`${spec.label}: AI version was cut to fit.`);
     } catch (error) {
       if (!controller.signal.aborted) {
         setAiError(`${spec.label}: ${error instanceof Error ? error.message : 'AI request failed.'}`);
@@ -445,6 +546,10 @@ function App() {
 
     const masterAtRequest = workspace.master;
 
+    fitAbortRef.current?.abort();
+    manualFitRef.current?.controller.abort();
+    manualFitRef.current = null;
+    setGenerating(new Set());
     setAuthorBusy(true);
     setAuthorError(null);
 
@@ -463,12 +568,10 @@ function App() {
         return;
       }
 
-      const doc = markdownToTipTap(text);
-      setWorkspace((prev) => applyMasterEdit(prev, doc));
-      setAiVersions(new Map()); // master replaced — drop stale AI versions
-      adaptedKeyRef.current.clear();
-      setEditorVersion((version) => version + 1);
-      setMasterVersion((version) => version + 1);
+      setProposals((prev) => new Map(prev).set('master', {
+        before: masterAtRequest, after: markdownToTipTap(text), master: masterAtRequest,
+        instruction, truncated: false,
+      }));
     } catch (error) {
       if (!controller.signal.aborted) {
         setAuthorError(error instanceof Error ? error.message : 'AI request failed.');
@@ -488,6 +591,8 @@ function App() {
   }
 
   function handleSaveSettings(config: LlmConfig) {
+    cancelAiWork();
+    adaptedKeyRef.current.clear();
     setLlmConfig(config);
     saveLlmConfig(config);
     setShowSettings(false);
@@ -557,6 +662,10 @@ function App() {
   }
 
   function handleMasterChange(nextMaster: EditorNode) {
+    if (JSON.stringify(nextMaster) === JSON.stringify(workspace.master)) return;
+    cancelAiWork();
+    setAiVersions(new Map());
+    adaptedKeyRef.current.clear();
     setWorkspace((prev) => applyMasterEdit(prev, nextMaster));
     setMasterVersion((version) => version + 1);
   }
@@ -564,7 +673,7 @@ function App() {
   function handleReplaceDocument(nextMaster: EditorNode) {
     // Importing or dropping a file replaces the whole draft; ask first when
     // there is a draft to lose (a stray drop must not wipe hours of work).
-    if (docToPlainText(workspace.master).trim()) {
+    if (hasUnsavedContent()) {
       setConfirmAction({ kind: 'replace', document: nextMaster });
       return;
     }
@@ -573,14 +682,23 @@ function App() {
   }
 
   function performReplaceDocument(nextMaster: EditorNode) {
+    cancelAiWork();
     setWorkspace((prev) => applyMasterEdit(prev, nextMaster));
     setAiVersions(new Map());
     adaptedKeyRef.current.clear();
+    setActivePaneEditor(null);
     setEditorVersion((version) => version + 1);
+    setMasterVersion((version) => version + 1);
     setStorageNotice(null);
   }
 
   function handlePaneChange(id: PlatformId, doc: EditorNode) {
+    dismissProposal(id);
+    if (manualFitRef.current?.id === id) {
+      manualFitRef.current.controller.abort();
+      manualFitRef.current = null;
+      setGenerating((prev) => new Set([...prev].filter((platform) => platform !== id)));
+    }
     // A manual edit forks the platform; drop any AI version it supersedes.
     setWorkspace((prev) => applyPaneEdit(prev, id, doc));
     setAiVersions((prev) => {
@@ -594,7 +712,62 @@ function App() {
   }
 
   function handleStartEditing(id: PlatformId) {
+    dismissProposal(id);
     setActivePaneEditor(id);
+  }
+
+  async function handleThreadToggle(id: PlatformId, enabled: boolean) {
+    if (authorBusy || reviewingMaster || platformBaseline || !PLATFORMS_BY_ID[id].capabilities.threads) return;
+    const key = contentKeyRef.current;
+    const author = authorAbortRef.current;
+    if (!enabled && workspace.threads?.[id]?.customized !== false) {
+      if (!await saveRecovery('Before turning off thread mode')) return;
+      if (contentKeyRef.current !== key || authorAbortRef.current !== author || proposalsRef.current.has('master')) {
+        setStorageNotice('The draft changed while recovery was being saved. Thread mode was not changed; try again.');
+        return;
+      }
+    }
+    const current = workspaceRef.current;
+    const source = current.overrides[id] ?? current.master;
+    if (enabled && renderForPlatform(source, PLATFORMS_BY_ID[id]).summary.count <= PLATFORMS_BY_ID[id].charLimit) {
+      setStorageNotice('The original draft fits in a single post for this platform.');
+      return;
+    }
+    fitAbortRef.current?.abort();
+    manualFitRef.current?.controller.abort();
+    manualFitRef.current = null;
+    setGenerating(new Set());
+    const thread = enabled ? makeThread(renderForPlatform(source, PLATFORMS_BY_ID[id]).text, PLATFORMS_BY_ID[id]) : null;
+    const threads = { ...current.threads };
+    if (thread) threads[id] = thread;
+    else delete threads[id];
+    const next = { ...current, threads };
+    workspaceRef.current = next;
+    setWorkspace(next);
+    adaptedKeyRef.current.delete(id);
+    setActivePaneEditor((current) => current === id ? null : current);
+    if (aiReady && docToPlainText(source).trim()) void handleFit(id, thread);
+    else {
+      if (thread) adaptedKeyRef.current.set(id, makeAdaptKey(llmConfig.stylePrompt, docToMarkdown(source), true));
+      clearAiVersion(id);
+    }
+  }
+
+  function handleThreadChange(id: PlatformId, thread: PostThread) {
+    const previous = workspace.threads?.[id];
+    const contentChanged = previous?.posts !== thread.posts;
+    if (contentChanged) {
+      fitAbortRef.current?.abort();
+      if (manualFitRef.current?.id === id) {
+        manualFitRef.current.controller.abort();
+        manualFitRef.current = null;
+      }
+      const manual = manualFitRef.current?.id;
+      setGenerating(new Set(manual ? [manual] : []));
+      clearAiVersion(id);
+      adaptedKeyRef.current.delete(id);
+    }
+    setWorkspace((prev) => applyThreadEdit(prev, id, { ...thread, customized: contentChanged || previous?.customized !== false }));
   }
 
   function handleStopEditing() {
@@ -617,6 +790,8 @@ function App() {
     return (
       Boolean(docToPlainText(workspace.master).trim()) ||
       Object.keys(workspace.overrides).length > 0 ||
+      Object.keys(workspace.threads ?? {}).length > 0 ||
+      aiVersions.size > 0 ||
       sources.length > 0 ||
       imageAttachment !== null
     );
@@ -627,26 +802,20 @@ function App() {
   }
 
   function performResync(id: PlatformId) {
+    dismissProposal(id);
     setWorkspace((prev) => resyncPlatform(prev, id));
     clearAiVersion(id);
     setActivePaneEditor((current) => (current === id ? null : current));
 
-    // If the freshly re-synced master text overflows this platform, adapt it now
-    // (showing the "Adapting…" notice) instead of waiting for the idle autofit pass.
-    const spec = PLATFORMS_BY_ID[id];
-
-    if (spec && aiReady && llmConfig.autoFit) {
-      const overLimit = renderForPlatform(workspace.master, spec).summary.count > spec.charLimit;
-
-      if (overLimit) {
-        void handleFit(id);
-      }
-    }
+    adaptedKeyRef.current.delete(id);
   }
 
   function handleTogglePlatform(id: PlatformId) {
+    dismissProposal(id);
+    fitAbortRef.current?.abort();
+    manualFitRef.current?.controller.abort();
+    setGenerating(new Set());
     setWorkspace((prev) => togglePlatform(prev, id));
-    clearAiVersion(id);
     // Closing the pane of a platform being hidden avoids a dangling editor.
     setActivePaneEditor((current) => (current === id ? null : current));
   }
@@ -661,7 +830,9 @@ function App() {
   }
 
   function performReset() {
-    setWorkspace((prev) => ({ ...prev, master: EMPTY_DOCUMENT, overrides: {} }));
+    cancelAiWork();
+    setActiveDraftId(null);
+    setWorkspace((prev) => ({ ...prev, master: EMPTY_DOCUMENT, overrides: {}, threads: {} }));
     setAiVersions(new Map());
     adaptedKeyRef.current.clear();
     setActivePaneEditor(null);
@@ -674,40 +845,131 @@ function App() {
     setStorageNotice(null);
   }
 
-  async function handleSaveDraftSnapshot(title: string) {
-    const characterCount = renderForPlatform(workspace.master, PLATFORMS_BY_ID.linkedin).summary.count;
-    const extras = {
+  function cancelAiWork() {
+    setPlatformBaseline(null);
+    fitAbortRef.current?.abort();
+    manualFitRef.current?.controller.abort();
+    manualFitRef.current = null;
+    authorAbortRef.current?.abort();
+    setAuthorBusy(false);
+    setGenerating(new Set());
+    setProposals(new Map());
+  }
+
+  function dismissProposal(key: string) {
+    setProposals((prev) => {
+      const next = new Map(prev);
+      next.delete(key);
+      return next;
+    });
+  }
+
+  async function captureSnapshot(title: string, kind: LibraryDraft['kind'], existing?: LibraryDraft) {
+    if (!attachmentsLoaded) throw new Error('Please wait for the attached media to finish restoring, then try again.');
+    const content = {
+      document: workspace.master,
       overrides: workspace.overrides,
-      aiVersions: Object.fromEntries(aiVersions) as Partial<Record<PlatformId, EditorNode>>,
+      aiVersions: Object.fromEntries(aiVersions),
+      threads: workspace.threads,
       enabledPlatforms: workspace.enabledPlatforms,
       sources,
+      characterCount: renderForPlatform(workspace.master, PLATFORMS_BY_ID.linkedin).summary.count,
     };
     const attachments = imageAttachment ? await serializeAttachmentsForDraft([imageAttachment]) : [];
-    let result = saveDraftSnapshot(workspace.master, title, characterCount, {
-      ...extras,
-      attachments: attachments.length ? attachments : undefined,
-    });
-    let notice: string | null = null;
+    if (imageAttachment && attachments.length !== 1) throw new Error('The attached image could not be saved. The draft was not changed.');
+    return createLibraryDraft({ ...content, attachments }, title, kind, existing);
+  }
 
-    // A large image can push the snapshot past the localStorage quota; a draft
-    // without its picture beats no draft at all.
-    if (!result.ok && attachments.length) {
-      result = saveDraftSnapshot(workspace.master, title, characterCount, extras);
+  async function refreshLibrary() {
+    setDraftHistory(await listLibraryDrafts());
+    setLibraryReady(true);
+  }
 
-      if (result.ok) {
-        notice = 'Draft saved, but the attached image was too large to save with it.';
-      }
-    }
-
-    if (result.ok) {
-      setDraftHistory(loadDraftHistory());
-      setStorageNotice(notice);
-    } else {
-      setStorageNotice(result.message);
+  async function saveRecovery(title: string): Promise<boolean> {
+    if (!hasUnsavedContent() || lastRecoveryKey.current === contentKey) return true;
+    try {
+      const checkpoint = await captureSnapshot(title, 'recovery');
+      await saveLibraryDraft(checkpoint);
+      lastRecoveryKey.current = contentKey;
+      await refreshLibrary();
+      return true;
+    } catch (error) {
+      setStorageNotice(`Recovery checkpoint failed: ${storageError(error)}`);
+      return false;
     }
   }
 
-  function handleRestoreDraftSnapshot(draft: DraftSnapshot) {
+  function isCurrentProposal(key: string, proposal: AiProposal) {
+    const current = workspaceRef.current;
+    const before = proposal.platform
+      ? current.overrides[proposal.platform] ?? aiVersionsRef.current.get(proposal.platform) ?? current.master
+      : current.master;
+    return proposalsRef.current.get(key) === proposal && current.master === proposal.master && before === proposal.before;
+  }
+
+  async function acceptProposal(key: string, proposal: AiProposal, document = proposal.after) {
+    if (!isCurrentProposal(key, proposal)) return;
+    if (!await saveRecovery('Before accepting AI changes') || !isCurrentProposal(key, proposal)) return;
+    try {
+      const accepted = await captureSnapshot('Accepted AI changes', 'recovery');
+      if (proposal.platform) {
+        accepted.overrides = { ...accepted.overrides };
+        delete accepted.overrides[proposal.platform];
+        accepted.aiVersions = { ...accepted.aiVersions, [proposal.platform]: document };
+      } else {
+        accepted.document = document;
+        accepted.aiVersions = {};
+        accepted.characterCount = renderForPlatform(document, PLATFORMS_BY_ID.linkedin).summary.count;
+      }
+      await saveLibraryDraft(accepted);
+      await refreshLibrary();
+    } catch (error) {
+      setStorageNotice(`AI changes were not applied because recovery could not be saved: ${storageError(error)}`);
+      return;
+    }
+    if (!isCurrentProposal(key, proposal)) return;
+    if (proposal.platform) {
+      const id = proposal.platform;
+      setWorkspace((prev) => resyncPlatform(prev, id));
+      setAiVersions((prev) => new Map(prev).set(id, document));
+      adaptedKeyRef.current.set(id, makeAdaptKey(llmConfig.stylePrompt, docToMarkdown(proposal.master)));
+      setActivePaneEditor((current) => current === id ? null : current);
+      dismissProposal(key);
+    } else {
+      cancelAiWork();
+      setPlatformBaseline(platformBaseline ?? {
+        master: workspaceRef.current.master,
+        versions: new Map(aiVersionsRef.current),
+        masterVersion,
+      });
+      setWorkspace((prev) => applyMasterEdit(prev, document));
+      setAiVersions(new Map());
+      adaptedKeyRef.current.clear();
+      setEditorVersion((version) => version + 1);
+      setMasterVersion((version) => version + 1);
+    }
+  }
+
+  async function handleSaveDraftSnapshot(title: string, update = false): Promise<boolean> {
+    try {
+      const existing = update ? draftHistory.find((draft) => draft.id === activeDraftId && draft.kind === 'draft') : undefined;
+      if (update && !existing) throw new Error('Select a saved draft before updating it.');
+      const draft = await captureSnapshot(title, 'draft', existing);
+      if (existing) {
+        await saveLibraryDraft(createLibraryDraft(existing, `Before updating "${existing.title}"`, 'recovery'));
+      }
+      await saveLibraryDraft(draft);
+      setActiveDraftId(draft.id);
+      await refreshLibrary();
+      setStorageNotice(`Saved "${draft.title}" with all variants, sources, and attachments.`);
+      return true;
+    } catch (error) {
+      setStorageNotice(storageError(error));
+      return false;
+    }
+  }
+
+  function handleRestoreDraftSnapshot(draft: LibraryDraft) {
     if (!hasUnsavedContent()) {
       performRestoreDraftSnapshot(draft);
       return;
@@ -716,7 +978,9 @@ function App() {
     setConfirmAction({ kind: 'restore', draft });
   }
 
-  function performRestoreDraftSnapshot(draft: DraftSnapshot) {
+  function performRestoreDraftSnapshot(draft: LibraryDraft) {
+    cancelAiWork();
+    setActiveDraftId(draft.kind === 'draft' ? draft.id : null);
     startedPreviewKeys.current.clear();
     setLinkPreviews(new Map());
     setDebouncedPlatformPreviewUrls([]);
@@ -725,6 +989,7 @@ function App() {
     setWorkspace((prev) => ({
       master: draft.document,
       overrides: draft.overrides ?? {},
+      threads: draft.threads === undefined ? {} : parsePlatformThreads(draft.threads),
       enabledPlatforms: draft.enabledPlatforms ?? prev.enabledPlatforms,
     }));
     // The restored AI versions were generated from the snapshot's inputs, not
@@ -737,7 +1002,15 @@ function App() {
     setStorageNotice(null);
   }
 
-  function runConfirmAction(action: ConfirmAction) {
+  async function runConfirmAction(action: ConfirmAction) {
+    const key = contentKey;
+    if (action.kind !== 'delete') {
+      if (!await saveRecovery('Before replacing draft')) return;
+      if (contentKeyRef.current !== key) {
+        setStorageNotice('The draft changed while recovery was being saved. Nothing was replaced; try again.');
+        return;
+      }
+    }
     switch (action.kind) {
       case 'resync':
         performResync(action.id);
@@ -751,17 +1024,46 @@ function App() {
       case 'restore':
         performRestoreDraftSnapshot(action.draft);
         break;
+      case 'delete':
+        await handleDeleteDraftSnapshot(action.draft.id);
+        break;
     }
   }
 
-  function handleDeleteDraftSnapshot(id: string) {
-    const result = deleteDraftSnapshot(id);
+  async function handleDeleteDraftSnapshot(id: string) {
+    try {
+      await deleteLibraryDraft(id);
+      if (activeDraftId === id) setActiveDraftId(null);
+      await refreshLibrary();
+      setStorageNotice('Saved draft deleted. The current editor was not changed.');
+    } catch (error) {
+      setStorageNotice(storageError(error));
+    }
+  }
 
-    if (result.ok) {
-      setDraftHistory(loadDraftHistory());
-      setStorageNotice(null);
-    } else {
-      setStorageNotice(result.message);
+  async function handleExportBackup() {
+    try {
+      const current = await captureSnapshot('Current workspace (backup)', 'draft');
+      const backup = exportLibraryBackup(await listLibraryDrafts(), current);
+      const url = URL.createObjectURL(new Blob([backup], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `polypost-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setStorageNotice('Backup exported, including the current workspace. API keys and AI settings are excluded.');
+    } catch (error) {
+      setStorageNotice(`Backup export failed: ${storageError(error)}`);
+    }
+  }
+
+  async function handleImportBackup(file: File) {
+    try {
+      const count = await importLibraryBackup(await file.text());
+      await refreshLibrary();
+      setStorageNotice(`Imported ${count} drafts as new library entries. Your current workspace and existing drafts were not changed.`);
+    } catch (error) {
+      setStorageNotice(`Backup import failed: ${storageError(error)}`);
     }
   }
 
@@ -826,11 +1128,10 @@ function App() {
           </button>
         </div>
 
+        {storageNotice ? <p className="inline-alert panel-alert" role="status">{storageNotice}</p> : null}
         <section className={`workspace-grid${isEditorCollapsed ? ' is-editor-collapsed' : ''}`} aria-label={`${APP_NAME} workspace`}>
           {isEditorCollapsed ? null : (
           <div className="workspace-panel editor-workspace">
-            {storageNotice ? <p className="inline-alert panel-alert" role="status">{storageNotice}</p> : null}
-
             <AiAssist
               ready={aiReady}
               busy={authorBusy}
@@ -845,6 +1146,14 @@ function App() {
               onUpdateSource={handleUpdateSource}
               onRemoveSource={handleRemoveSource}
             />
+            {proposals.get('master') ? (
+              <AiReview
+                proposal={proposals.get('master')!}
+                busy={authorBusy}
+                onAccept={(document) => acceptProposal('master', proposals.get('master')!, document)}
+                onReject={() => dismissProposal('master')}
+              />
+            ) : (
             <EditorShell
               key={editorVersion}
               initialContent={workspace.master}
@@ -852,12 +1161,17 @@ function App() {
               onReplaceDocument={handleReplaceDocument}
               onReset={handleReset}
             />
+            )}
+            {!proposals.has('master') ? <WordCount count={countWords(docToPlainText(workspace.master))} /> : null}
             <ImageAttachmentControl image={imageAttachment} onSetImage={handleSetImageAttachment} />
             <DraftHistoryPanel
               drafts={draftHistory}
-              onDelete={handleDeleteDraftSnapshot}
+              activeDraftId={activeDraftId}
+              onDelete={(draft) => setConfirmAction({ kind: 'delete', draft })}
               onRestore={handleRestoreDraftSnapshot}
               onSave={handleSaveDraftSnapshot}
+              onExport={handleExportBackup}
+              onImport={handleImportBackup}
             />
           </div>
           )}
@@ -871,15 +1185,20 @@ function App() {
             imageAttachment={imageAttachment}
             linkPreviews={linkPreviews}
             generatingIds={generating}
-            aiReady={aiReady}
+            aiReady={aiReady && !authorBusy && !reviewingMaster && !platformBaseline}
             aiError={aiError}
             editingId={activePaneEditor}
-            masterVersion={masterVersion}
+            masterVersion={platformBaseline?.masterVersion ?? masterVersion}
             onStartEditing={handleStartEditing}
             onStopEditing={handleStopEditing}
             onPaneChange={handlePaneChange}
             onResync={handleResync}
             onFit={handleFit}
+            threads={workspace.threads}
+            threadingNeededIds={threadingNeededIds}
+            threadingPaused={authorBusy || reviewingMaster || Boolean(platformBaseline)}
+            onToggleThread={handleThreadToggle}
+            onThreadChange={handleThreadChange}
           />
         </section>
       </main>
@@ -890,7 +1209,7 @@ function App() {
           {...describeConfirmAction(confirmAction)}
           onConfirm={() => {
             setConfirmAction(null);
-            runConfirmAction(confirmAction);
+            void runConfirmAction(confirmAction);
           }}
           onCancel={() => setConfirmAction(null)}
         />
@@ -905,37 +1224,44 @@ function describeConfirmAction(action: ConfirmAction): { title: string; message:
     case 'resync':
       return {
         title: `Re-sync ${PLATFORMS_BY_ID[action.id]?.label ?? 'platform'}?`,
-        message: 'This discards the customized version for this platform and follows the master draft again.',
+        message: 'This discards the customized post, thread, or accepted AI version for this platform and follows the master draft again. A recovery checkpoint will be saved first.',
         confirmLabel: 'Re-sync',
       };
     case 'reset':
       return {
         title: 'Reset draft?',
-        message: 'This clears the draft, every customized platform version, AI sources, and the attached image. It cannot be undone.',
+        message: 'This clears the draft, every platform version, AI sources, and the attached image. A recovery checkpoint will be saved first.',
         confirmLabel: 'Reset',
       };
     case 'replace':
       return {
         title: 'Replace draft with imported file?',
-        message: 'The imported document replaces your current draft and customized platform versions. It cannot be undone.',
+        message: 'The imported document replaces your master draft and AI variants. Customized platform edits are kept. A recovery checkpoint will be saved first.',
         confirmLabel: 'Replace',
       };
     case 'restore':
       return {
         title: `Restore "${action.draft.title}"?`,
-        message: 'Restoring replaces your current draft, customized platform versions, sources, and attached image. Save the current draft first if you want to keep it.',
+        message: 'Restoring replaces your draft, platform versions, sources, and attached image. A recovery checkpoint will be saved first.',
         confirmLabel: 'Restore',
+      };
+    case 'delete':
+      return {
+        title: `Delete "${action.draft.title}"?`,
+        message: 'This removes the saved library entry, not the current editor. Export a backup first if you want to keep it.',
+        confirmLabel: 'Delete',
       };
   }
 }
 
-function shouldAutoAdapt(config: LlmConfig): boolean {
-  return Boolean(config.stylePrompt.trim()) || config.autoFit;
+// Cache key for adaptedKeyRef: the inputs an AI platform version derives from.
+function makeAdaptKey(stylePrompt: string, masterMarkdown: string, threaded = false): string {
+  return JSON.stringify([stylePrompt, masterMarkdown, threaded]);
 }
 
-// Cache key for adaptedKeyRef: the inputs an AI platform version derives from.
-function makeAdaptKey(stylePrompt: string, masterMarkdown: string): string {
-  return JSON.stringify([stylePrompt, masterMarkdown]);
+function makeThread(text: string, spec: PlatformSpec): PostThread {
+  const posts = splitThreadText(text, spec);
+  return { numbered: true, customized: false, posts: (posts.length ? posts : ['']).map((text) => ({ id: createDraftId(), text })) };
 }
 
 function selectAutoAdapt(
@@ -944,8 +1270,9 @@ function selectAutoAdapt(
   enabledPlatforms: PlatformId[],
   overrides: Partial<Record<PlatformId, EditorNode>>,
   aiVersions: ReadonlyMap<PlatformId, EditorNode>,
-): { toFit: PlatformId[]; toClear: PlatformId[] } {
-  const userForkedIds = new Set(Object.keys(overrides) as PlatformId[]);
+  threads: PlatformThreads = {},
+): PlatformId[] {
+  const userForkedIds = new Set(Object.keys({ ...overrides, ...threads }) as PlatformId[]);
   const aiVersionIds = new Set(aiVersions.keys());
   // Style guidance only targets cards when the editor itself has content —
   // context/source documents alone must not trigger styling of an empty post.
@@ -955,21 +1282,16 @@ function selectAutoAdapt(
   const fitSelection = config.autoFit
     ? selectAutofit({ master, enabledPlatforms, userForkedIds, aiVersionIds })
     : { toFit: [], toClear: [] };
-  const enabled = new Set(enabledPlatforms);
-  const toFit = [...new Set([...fitSelection.toFit, ...styleTargets])];
-  // With style guidance on but no editor content, drop every existing AI version
-  // so the cards fall back to the (empty) master instead of stale styled text.
-  const toClear = config.stylePrompt.trim()
-    ? hasMasterContent
-      ? [...aiVersionIds].filter((id) => !enabled.has(id) || userForkedIds.has(id))
-      : [...aiVersionIds]
-    : fitSelection.toClear;
-
-  return { toFit, toClear };
+  const threadTargets = enabledPlatforms.filter((id) => threads[id]?.customized === false);
+  return [...new Set([...fitSelection.toFit, ...styleTargets, ...threadTargets])];
 }
 
 function previewFetchKey(id: string, preview: LinkPreview | undefined): string {
   return [id, preview?.status ?? 'missing', preview?.title ?? '', preview?.imageUrl ?? ''].join('\u0000');
+}
+
+function storageError(error: unknown): string {
+  return error instanceof Error ? error.message : 'Browser storage could not complete the operation. Your current editor has not been changed.';
 }
 
 export default App;

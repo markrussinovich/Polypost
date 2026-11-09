@@ -4,6 +4,7 @@ import type { EditorNode } from '../lib/exportText';
 import type { Attachment, LinkPreview } from '../lib/media';
 import type { PlatformId, PlatformRender, PlatformSpec } from '../lib/platforms/types';
 import { PlatformCard } from './PlatformCard';
+import type { PlatformThreads, PostThread } from '../lib/postThreads';
 
 interface PlatformRailProps {
   // Enabled specs in display order.
@@ -27,6 +28,11 @@ interface PlatformRailProps {
   onPaneChange: (id: PlatformId, document: EditorNode) => void;
   onResync: (id: PlatformId) => void;
   onFit: (id: PlatformId) => void;
+  threads?: PlatformThreads;
+  threadingNeededIds?: ReadonlySet<PlatformId>;
+  threadingPaused?: boolean;
+  onToggleThread?: (id: PlatformId, enabled: boolean) => void;
+  onThreadChange?: (id: PlatformId, thread: PostThread) => void;
 }
 
 export function PlatformRail({
@@ -47,6 +53,11 @@ export function PlatformRail({
   onPaneChange,
   onResync,
   onFit,
+  threads,
+  threadingNeededIds,
+  threadingPaused,
+  onToggleThread,
+  onThreadChange,
 }: PlatformRailProps) {
   if (specs.length === 0) {
     return (
@@ -90,6 +101,11 @@ export function PlatformRail({
             onPaneChange={(doc) => onPaneChange(spec.id, doc)}
             onResync={() => onResync(spec.id)}
             onFit={() => onFit(spec.id)}
+            thread={threads?.[spec.id]}
+            threadingNeeded={threadingNeededIds?.has(spec.id)}
+            threadingPaused={threadingPaused}
+            onToggleThread={onToggleThread ? (enabled) => onToggleThread(spec.id, enabled) : undefined}
+            onThreadChange={onThreadChange ? (thread) => onThreadChange(spec.id, thread) : undefined}
           />
         );
       })}

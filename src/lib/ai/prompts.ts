@@ -8,18 +8,18 @@ export interface LlmRequest {
 
 // Describes a platform's constraints to the model. Built entirely from the pure
 // PlatformSpec so the spec stays the single source of truth (see forward-compat plan).
-export function buildPlatformPromptContext(spec: PlatformSpec): string {
+export function buildPlatformPromptContext(spec: PlatformSpec, includeLength = true): string {
   const lines = [
     `Platform: ${spec.label}`,
-    `Character limit: ${spec.charLimit}`,
+    ...(includeLength ? [`Character limit: ${spec.charLimit}`] : []),
     spec.allowUnicodeStyling
       ? 'You may use Markdown for light emphasis — **bold**, *italic*, bullet lists with "- ", and links [text](url). It is converted to the platform\'s styled text. Use it sparingly on key phrases.'
       : 'Use plain text only — no Markdown, no asterisks, and no styled characters (this platform renders them as literal symbols or hurts reach).',
   ];
 
-  if (spec.counting === 'graphemes') {
+  if (includeLength && spec.counting === 'graphemes') {
     lines.push('Length is counted in characters (grapheme clusters).');
-  } else if (spec.counting === 'x-weighted') {
+  } else if (includeLength && spec.counting === 'x-weighted') {
     lines.push('URLs count as 23 characters; some characters (CJK, emoji) count as 2.');
   }
 
@@ -30,12 +30,30 @@ export function buildPlatformPromptContext(spec: PlatformSpec): string {
   return lines.join('\n');
 }
 
-// Appends the user's freeform voice/style guidance to a base system prompt.
+// Shared post formatting rules and the user's optional voice/style guidance.
 function withStyle(baseSystem: string, style?: string): string {
   const trimmed = style?.trim();
-  return trimmed
+  const system = trimmed
     ? `${baseSystem}\n\nApply this voice/style guidance from the user: ${trimmed}\nApply it only where it is relevant; preserve everything in the original post that does not conflict with this guidance — keep the author's wording, structure, facts, hashtags, links, and @mentions intact unless the guidance specifically requires changing them.`
     : baseSystem;
+  return `${system}\n\nAlways put each bullet point on its own line, with the bullet marker at the start of the line. Never put a bullet inline after other text or combine multiple bullet points into one paragraph. Preserve these line breaks even when shortening the post to fit a character limit.`;
+}
+
+export function buildThreadRequest(spec: PlatformSpec, masterText: string, style?: string): LlmRequest {
+  return {
+    system: withStyle(
+      'You adapt the full text of a social media draft for a threaded post. ' +
+      'Preserve the complete message: all facts, details, examples, links, hashtags, and @mentions. ' +
+      'Keep every URL and any @[Name] mention tokens exactly as written. ' +
+      'Do not shorten or summarize the draft to fit a single post. There is no target length for the full text. ' +
+      'The app will split your complete response into individual posts afterward and handle numbering. ' +
+      'Return ONLY the full adapted text, without thread numbering, separators, a preamble, or an explanation.',
+      style,
+    ),
+    prompt: `${buildPlatformPromptContext(spec, false)}\n\n` +
+      `Adapt the full draft below for ${spec.label}, without a total character or word target. Preserve all of its content.\n\n` +
+      `Full draft:\n${masterText}`,
+  };
 }
 
 // Rewrite the master post to fit a platform's length and formatting. `limit` is

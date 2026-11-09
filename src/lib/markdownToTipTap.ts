@@ -3,14 +3,15 @@ import type { EditorMark, EditorNode } from './exportLinkedInText';
 const HORIZONTAL_RULE_PATTERN = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
 const FENCED_CODE_PATTERN = /^\s{0,3}```/;
 const HEADING_PATTERN = /^\s{0,3}(#{1,6})\s+(.+)$/;
-const BULLET_PATTERN = /^(\s*)[-+*]\s+(.+)$/;
+const BULLET_PATTERN = /^(\s*)[-+*\u2022\u25e6\u25aa]\s+(.+)$/;
 const ORDERED_PATTERN = /^(\s*)(\d+)\.\s+(.+)$/;
 const BLOCKQUOTE_PATTERN = /^\s*>\s?(.*)$/;
 const HTML_BLOCK_PATTERN = /^\s*<\/?[a-z][^>]*>\s*$/i;
 const MARKDOWN_IMAGE_PATTERN = /^\s*!\[[^\]]*\]\([^)]+\)\s*$/;
 
 export function looksLikeMarkdown(text: string): boolean {
-  return /(^\s{0,3}(#{1,6}|[-+*]|\d+\.|>)\s+|`[^`]+`|\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|~~[^~]+~~|__[^_]+__|^\s{0,3}[-*_]{3,}\s*$)/m.test(text);
+  return text.split(/\r?\n/).some((line) => BULLET_PATTERN.test(line)) ||
+    /(^\s{0,3}(#{1,6}|\d+\.|>)\s+|`[^`]+`|\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|~~[^~]+~~|__[^_]+__|^\s{0,3}[-*_]{3,}\s*$)/m.test(text);
 }
 
 export function plainTextToTipTap(text: string): EditorNode {

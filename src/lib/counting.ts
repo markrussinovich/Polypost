@@ -56,6 +56,22 @@ const graphemeSegmenter =
     ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
     : null;
 
+const wordSegmenter =
+  typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
+    ? new Intl.Segmenter(undefined, { granularity: 'word' })
+    : null;
+
+export function countWords(text: string): number {
+  if (!wordSegmenter) {
+    return text.match(/[\p{L}\p{N}]+(?:['\u2019][\p{L}\p{N}]+)*/gu)?.length ?? 0;
+  }
+  let count = 0;
+  for (const segment of wordSegmenter.segment(text)) {
+    if (segment.isWordLike) count += 1;
+  }
+  return count;
+}
+
 export function countCharacters(text: string, method: CountingMethod): number {
   const normalized = text.normalize('NFC');
 
@@ -121,7 +137,7 @@ interface TokenRange {
   end: number;
 }
 
-function urlTokenRanges(normalized: string): TokenRange[] {
+export function urlTokenRanges(normalized: string): TokenRange[] {
   const ranges: TokenRange[] = [];
 
   for (const match of normalized.matchAll(new RegExp(URL_PATTERN.source, 'gu'))) {
@@ -163,7 +179,7 @@ function weightOfRange(text: string): number {
   return total;
 }
 
-function graphemeClusters(text: string): string[] {
+export function graphemeClusters(text: string): string[] {
   if (!graphemeSegmenter) {
     return Array.from(text);
   }

@@ -6,7 +6,7 @@ import { renderForPlatform } from '../platforms';
 import type { PlatformSpec } from '../platforms/types';
 import type { LlmConfig } from './config';
 import { generateText } from './llmClient';
-import { buildFitRequest, buildOverLimitFeedback } from './prompts';
+import { buildFitRequest, buildOverLimitFeedback, buildThreadRequest } from './prompts';
 
 export interface FitResult {
   doc: EditorNode;
@@ -14,6 +14,7 @@ export interface FitResult {
   count: number;
   withinLimit: boolean;
   attempts: number;
+  truncated: boolean;
 }
 
 export interface FitOptions {
@@ -23,6 +24,13 @@ export interface FitOptions {
   style?: string;
   signal?: AbortSignal;
   maxAttempts?: number;
+}
+
+export async function generateThread({ config, spec, masterText, style, signal }: FitOptions): Promise<EditorNode> {
+  const request = buildThreadRequest(spec, masterText, style);
+  const text = await generateText({ config, ...request, signal, maxTokens: 8192, requireComplete: true });
+  if (!text.trim()) throw new Error('The model returned an empty thread.');
+  return markdownToTipTap(text);
 }
 
 // Measures a candidate exactly the way its preview card will (same render path),
@@ -49,7 +57,7 @@ export async function generateFit({ config, spec, masterText, style, signal, max
     const { doc, count } = measure(text, spec);
 
     if (count <= effectiveLimit) {
-      return { doc, text, count, withinLimit: true, attempts: attempt };
+      return { doc, text, count, withinLimit: true, attempts: attempt, truncated: false };
     }
 
     if (!best || count < best.count) {
@@ -70,7 +78,7 @@ export async function generateFit({ config, spec, masterText, style, signal, max
   // over the limit (e.g. a Threads post stuck at 502/500).
   const fallback = best ?? measureToResult('', spec);
   const trimmed = trimToLimit(fallback.text, spec, effectiveLimit);
-  return { ...trimmed, withinLimit: trimmed.count <= effectiveLimit, attempts: maxAttempts };
+  return { ...trimmed, withinLimit: trimmed.count <= effectiveLimit, attempts: maxAttempts, truncated: true };
 }
 
 function measureToResult(text: string, spec: PlatformSpec): { doc: EditorNode; text: string; count: number } {

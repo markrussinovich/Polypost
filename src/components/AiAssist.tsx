@@ -116,6 +116,7 @@ export function AiAssist({ ready, busy, error, onSubmit, onCancel, onOpenSetting
   // -1 means "live input"; otherwise an index into history.
   const [historyIndex, setHistoryIndex] = useState(-1);
   const prevBusy = useRef(busy);
+  const lastAutomaticPrompt = useRef<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Caret position to apply after a history recall re-renders the textarea.
   const pendingCaretRef = useRef<number | null>(null);
@@ -152,6 +153,18 @@ export function AiAssist({ ready, busy, error, onSubmit, onCancel, onOpenSetting
     savePromptHistory(history);
   }, [history]);
 
+  useEffect(() => {
+    const text = instruction.trim();
+    if (!ready || busy || !text || lastAutomaticPrompt.current === text) return;
+    const timeout = window.setTimeout(() => {
+      if (lastAutomaticPrompt.current === text) return;
+      submitPrompt(text);
+    }, 3000);
+    return () => window.clearTimeout(timeout);
+    // Changes to the prompt restart the automatic generation timer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instruction, ready, busy]);
+
   // Clear the box once a generation finishes (busy goes true -> false).
   useEffect(() => {
     if (prevBusy.current && !busy) {
@@ -176,6 +189,7 @@ export function AiAssist({ ready, busy, error, onSubmit, onCancel, onOpenSetting
       return;
     }
 
+    lastAutomaticPrompt.current = trimmed;
     setHistory((prev) => appendPrompt(prev, trimmed));
     setHistoryIndex(-1);
     onSubmit(trimmed);
@@ -238,7 +252,7 @@ export function AiAssist({ ready, busy, error, onSubmit, onCancel, onOpenSetting
   }
 
   return (
-    <div className="ai-assist">
+    <div className={`ai-assist${busy ? ' is-busy' : ''}`} aria-busy={busy}>
       <form className="ai-assist-form" onSubmit={handleSubmit}>
         <div className="ai-assist-row">
           <Sparkles aria-hidden="true" size={16} className="ai-assist-icon" />
@@ -249,7 +263,10 @@ export function AiAssist({ ready, busy, error, onSubmit, onCancel, onOpenSetting
             placeholder="Ask AI to write or improve this post… (↑/↓ for history)"
             aria-label="AI instruction"
             disabled={busy}
-            onChange={(event) => setInstruction(event.target.value)}
+            onChange={(event) => {
+              lastAutomaticPrompt.current = null;
+              setInstruction(event.target.value);
+            }}
             onKeyDown={handleKeyDown}
           />
           <button
@@ -262,6 +279,7 @@ export function AiAssist({ ready, busy, error, onSubmit, onCancel, onOpenSetting
           >
             {busy ? <Square aria-hidden="true" size={12} fill="currentColor" /> : <ArrowUp aria-hidden="true" size={18} />}
           </button>
+          {busy ? <span className="sr-only" role="status">Generating draft</span> : null}
         </div>
         {hasDraft ? (
           <div className="ai-suggestions">

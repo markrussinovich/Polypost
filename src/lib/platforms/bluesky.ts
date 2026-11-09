@@ -13,6 +13,7 @@ export const blueskySpec: PlatformSpec = {
   truncationLabel: '',
   capabilities: {
     copy: true,
+    threads: true,
     imageAttachments: true,
     openComposer: {
       url: (text) => `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`,

@@ -1,7 +1,41 @@
 import { describe, expect, it } from 'vitest';
 
 import { xSpec } from '../platforms/x';
-import { buildAuthorRequest, buildFitRequest, buildOverLimitFeedback } from './prompts';
+import { buildAuthorRequest, buildFitRequest, buildOverLimitFeedback, buildThreadRequest } from './prompts';
+import { blueskySpec } from '../platforms/bluesky';
+import { threadsSpec } from '../platforms/threads';
+
+describe('bullet formatting in system prompts', () => {
+  it.each([undefined, 'Warm and clear'])('requires separate lines in every post-generation mode with style %s', (style) => {
+    const requests = [
+      buildAuthorRequest('Improve this', 'My draft', style),
+      buildFitRequest(xSpec, 'My draft', style),
+      buildThreadRequest(threadsSpec, 'My draft', style),
+    ];
+    for (const { system } of requests) {
+      expect(system).toContain('Always put each bullet point on its own line');
+      expect(system).toContain('bullet marker at the start of the line');
+      expect(system).toContain('Never put a bullet inline after other text or combine multiple bullet points into one paragraph');
+      expect(system).toContain('Preserve these line breaks even when shortening');
+      if (style) expect(system).toContain(style);
+    }
+  });
+});
+
+describe('full-text thread prompts', () => {
+  it.each([xSpec, blueskySpec, threadsSpec])('does not give the model a target length for $label', (spec) => {
+    const source = 'Full details. Thanks @[Ada Lovelace]. https://a.test/reference';
+    const request = buildThreadRequest(spec, source, 'Warm and clear');
+    expect(request.prompt).toContain(source);
+    expect(request.prompt).toContain(`Platform: ${spec.label}`);
+    expect(request.prompt).toContain('plain text only');
+    expect(request.prompt).not.toMatch(/Character limit:|within \d+|headroom|count as you write/);
+    expect(request.system).toContain('Do not shorten or summarize');
+    expect(request.system).toContain('every URL');
+    expect(request.system).toContain('Warm and clear');
+    expect(request.system).toContain('split your complete response');
+  });
+});
 
 describe('buildFitRequest URL preservation', () => {
   it('lists every URL in the post and forbids dropping any of them', () => {

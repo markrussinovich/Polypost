@@ -158,7 +158,7 @@ describe('selectAutofit', () => {
   });
 });
 
-describe('generateText error redaction', () => {
+describe('generateText response handling', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -178,6 +178,17 @@ describe('generateText error redaction', () => {
       expect(error.message).toContain('[redacted]');
       return true;
     });
+  });
+
+  it.each([
+    { provider: 'anthropic' as const, data: { content: [{ type: 'text', text: 'Partial draft' }], stop_reason: 'max_tokens' } },
+    { provider: 'openai' as const, data: { choices: [{ message: { content: 'Partial draft' }, finish_reason: 'length' }] } },
+    { provider: 'gemini' as const, data: { candidates: [{ content: { parts: [{ text: 'Partial draft' }] }, finishReason: 'MAX_TOKENS' }] } },
+  ])('rejects output-limited $provider replies when the full thread is required', async ({ provider, data }) => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => data } as Response);
+    const config = { ...defaultLlmConfig(), provider, enabled: true, apiKey: 'test' };
+    await expect(generateText({ config, system: 's', prompt: 'p', requireComplete: true })).rejects.toThrow(/output limit/);
+    await expect(generateText({ config, system: 's', prompt: 'p' })).resolves.toBe('Partial draft');
   });
 });
 

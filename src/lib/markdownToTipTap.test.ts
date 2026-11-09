@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import { looksLikeMarkdown, markdownToTipTap, plainTextToTipTap } from './markdownToTipTap';
+import { exportText } from './exportText';
 
 describe('looksLikeMarkdown', () => {
   it('detects common markdown markers', () => {
     expect(looksLikeMarkdown('A **bold** move')).toBe(true);
     expect(looksLikeMarkdown('## Heading')).toBe(true);
     expect(looksLikeMarkdown('- item')).toBe(true);
+    expect(looksLikeMarkdown('\u2022 item')).toBe(true);
     expect(looksLikeMarkdown('[link](example.com)')).toBe(true);
   });
 
@@ -16,6 +18,30 @@ describe('looksLikeMarkdown', () => {
 });
 
 describe('markdownToTipTap', () => {
+  it.each(['\u2022', '\u25e6', '\u25aa'])('keeps %s bullet items on separate lines through parsing and export', (bullet) => {
+    const text = `A few highlights:\n\n${bullet} The Plaza Mayor.\n${bullet} Two cathedrals, Old and New.\n${bullet} The University, founded 1218.\n\nDon't skip Salamanca.`;
+    const doc = markdownToTipTap(text);
+    expect(doc.content?.[2].type).toBe('bulletList');
+    expect(doc.content?.[2].content).toHaveLength(3);
+    expect(exportText(doc, { unicodeStyling: false })).toBe(text.split(bullet).join('\u2022'));
+  });
+
+  it('preserves indentation and inline formatting in Unicode bullet lists', () => {
+    const doc = markdownToTipTap('\u2022 **Parent**\n  \u25e6 Child\n\u2022 Sibling');
+    expect(doc.content?.[0].type).toBe('bulletList');
+    const first = doc.content?.[0].content?.[0];
+    expect(first?.content?.[0].content?.[0].marks).toEqual([{ type: 'bold' }]);
+    expect(first?.content?.[1].type).toBe('bulletList');
+    expect(exportText(doc, { unicodeStyling: false })).toMatch(/^\u2022 Parent\n[^\S\n]+\u2022 Child\n\u2022 Sibling$/);
+  });
+
+  it('does not treat inline bullet symbols or fenced code as list items', () => {
+    const doc = markdownToTipTap('Design \u2022 Build \u2022 Ship\n\n```\n\u2022 literal\n```');
+    expect(doc.content?.every((node) => node.type === 'paragraph')).toBe(true);
+    expect(exportText(doc, { unicodeStyling: false })).toBe('Design \u2022 Build \u2022 Ship\n\n\u2022 literal');
+    expect(doc.content?.[2].content?.[0].marks).toEqual([{ type: 'code' }]);
+  });
+
   it('converts inline marks and links', () => {
     expect(markdownToTipTap('**Bold**, *italic*, __also bold__, ~~strike~~, `code`, [site](example.com)')).toEqual({
       type: 'doc',

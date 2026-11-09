@@ -126,7 +126,7 @@ export function LlmSettings({ config, onSave, onClose }: LlmSettingsProps) {
             disabled={!autofitAvailable}
             onChange={(event) => update({ autoFit: event.target.checked })}
           />
-          <span>Auto-fit over-limit platforms after a 3s typing pause</span>
+          <span>Suggest fitted versions for review after a 3s typing pause</span>
         </label>
 
         {test.status === 'ok' ? (

@@ -2,6 +2,7 @@ import type { EditorNode } from './exportLinkedInText';
 import type { Source } from './ai/sources';
 import type { StoredAttachment } from './media';
 import type { PlatformId } from './platforms/types';
+import { isPlatformThreads, parsePlatformThreads, type PlatformThreads } from './postThreads';
 
 const DRAFT_STORAGE_KEY = 'linkedin-format:draft-v1';
 const DRAFT_HISTORY_KEY = 'linkedin-format:draft-history-v1';
@@ -17,9 +18,9 @@ export interface DraftSnapshot {
   document: EditorNode;
   // Added with multi-platform support; optional so older snapshots stay valid.
   overrides?: Partial<Record<PlatformId, EditorNode>>;
-  // AI-generated per-platform versions (the session-only aiVersions map),
-  // serialized so an AI-adapted card restores as it was. Optional for back-compat.
+  // Accepted AI-generated per-platform versions. Optional for back-compat.
   aiVersions?: Partial<Record<PlatformId, EditorNode>>;
+  threads?: PlatformThreads;
   enabledPlatforms?: PlatformId[];
   sources?: Source[];
   attachments?: StoredAttachment[];
@@ -30,12 +31,16 @@ export interface StoredWorkspace {
   master: EditorNode;
   overrides: Partial<Record<PlatformId, EditorNode>>;
   enabledPlatforms: PlatformId[];
+  aiVersions?: Partial<Record<PlatformId, EditorNode>>;
+  threads?: PlatformThreads;
 }
 
 export interface WorkspaceInput {
   master: EditorNode;
   overrides: Partial<Record<PlatformId, EditorNode>>;
   enabledPlatforms: PlatformId[];
+  aiVersions?: Partial<Record<PlatformId, EditorNode>>;
+  threads?: PlatformThreads;
 }
 
 interface LoadWorkspaceResult {
@@ -133,7 +138,7 @@ export function loadWorkspace(): LoadWorkspaceResult {
     }
 
     if (isStoredWorkspace(parsed)) {
-      return { workspace: parsed, error: null };
+      return { workspace: { ...parsed, threads: parsed.threads === undefined ? undefined : parsePlatformThreads(parsed.threads) }, error: null };
     }
 
     // v2 present but corrupt/invalid: fall back to the legacy draft if any.
@@ -172,6 +177,8 @@ export function saveWorkspace(input: WorkspaceInput): SaveDraftResult {
       master: input.master,
       overrides: input.overrides,
       enabledPlatforms: input.enabledPlatforms,
+      aiVersions: input.aiVersions,
+      threads: input.threads,
     };
     window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(stored));
     return { ok: true, message: 'Draft saved.' };
@@ -202,6 +209,7 @@ export function loadDraftHistory(): DraftSnapshot[] {
 interface DraftSnapshotExtras {
   overrides?: Partial<Record<PlatformId, EditorNode>>;
   aiVersions?: Partial<Record<PlatformId, EditorNode>>;
+  threads?: PlatformThreads;
   enabledPlatforms?: PlatformId[];
   sources?: Source[];
   attachments?: StoredAttachment[];
@@ -228,6 +236,7 @@ export function saveDraftSnapshot(
       document,
       overrides: extras.overrides,
       aiVersions: extras.aiVersions,
+      threads: extras.threads,
       enabledPlatforms: extras.enabledPlatforms,
       sources: extras.sources,
       attachments: extras.attachments,
@@ -258,7 +267,7 @@ function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
-function createDraftId(): string {
+export function createDraftId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID();
   }
@@ -289,7 +298,11 @@ function isStoredWorkspace(value: unknown): value is StoredWorkspace {
     return false;
   }
 
-  return Object.values(candidate.overrides).every(isEditorNode);
+  return (candidate.threads === undefined || isPlatformThreads(candidate.threads)) &&
+    Object.values(candidate.overrides).every(isEditorNode) &&
+    (candidate.aiVersions === undefined ||
+      (typeof candidate.aiVersions === 'object' && candidate.aiVersions !== null &&
+        Object.values(candidate.aiVersions).every(isEditorNode)));
 }
 
 function isDraftSnapshot(value: unknown): value is DraftSnapshot {
@@ -304,6 +317,7 @@ function isDraftSnapshot(value: unknown): value is DraftSnapshot {
     typeof candidate.createdAt === 'number' &&
     typeof candidate.updatedAt === 'number' &&
     typeof candidate.characterCount === 'number' &&
-    isEditorNode(candidate.document)
+    isEditorNode(candidate.document) &&
+    (candidate.threads === undefined || isPlatformThreads(candidate.threads))
   );
 }

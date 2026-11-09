@@ -154,7 +154,7 @@ export function LinkedInComposerOverlay({ open, onClose, onPost }: LinkedInCompo
     }
   }
 
-  function handleSaveDraftSnapshot(title: string) {
+  async function handleSaveDraftSnapshot(title: string): Promise<boolean> {
     const result = saveDraftSnapshot(editorDocument, title, summary.count);
 
     if (result.ok) {
@@ -163,6 +163,7 @@ export function LinkedInComposerOverlay({ open, onClose, onPost }: LinkedInCompo
     } else {
       setStorageNotice(result.message);
     }
+    return result.ok;
   }
 
   function handleRestoreDraftSnapshot(draft: DraftSnapshot) {
@@ -326,8 +327,8 @@ export function LinkedInComposerOverlay({ open, onClose, onPost }: LinkedInCompo
             onReset={handleReset}
           />
           <DraftHistoryPanel
-            drafts={draftHistory}
-            onDelete={handleDeleteDraftSnapshot}
+            drafts={draftHistory.map((draft) => ({ ...draft, kind: 'draft' as const }))}
+            onDelete={(draft) => handleDeleteDraftSnapshot(draft.id)}
             onRestore={handleRestoreDraftSnapshot}
             onSave={handleSaveDraftSnapshot}
           />

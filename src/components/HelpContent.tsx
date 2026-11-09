@@ -25,6 +25,21 @@ export function HelpContent({ webApp = false }: { webApp?: boolean }) {
         </ul>
       </section>
 
+      {webApp ? (
+      <section className="help-section">
+        <h3>Threaded posts</h3>
+        <ul className="help-list">
+          <li>Each X, Bluesky, and Threads card has its own "Split into a thread" toggle, off by default. The toggle cannot be enabled while the full platform-specific edit or main draft fits in a single post, using that platform's character-counting rules, not an AI-shortened version. Existing threads can still be switched off. Turning it on regenerates the full source with configured AI, without a total-length target, then splits the response into posts. Without AI, it splits the full source locally.</li>
+          <li>Splitting prefers paragraph, sentence, and word boundaries without breaking URLs or emoji. Posts are always numbered, and each character count includes its numbering. Long URLs and over-limit edits are flagged rather than truncated.</li>
+          <li>Automatic threads follow finalized source changes after a three-second pause, even with auto-fit off. Editing or removing posts protects that thread from automatic replacement. Previously saved threads remain protected and are now always numbered. Use the card's AI sparkle to explicitly regenerate the full thread.</li>
+          <li>Turn the toggle off to return to single-post fitting; customized threads are saved to recovery first. Re-sync removes the thread after confirmation. Incomplete AI responses that hit the model's output limit are reported, not applied.</li>
+          <li>Threads show one editable card at a time. Use the previous/next arrows to cycle through posts, wrapping around at either end. The navigation shows your position and the total number of posts. Removing a post selects and focuses a neighboring card.</li>
+          <li>Each segment has "Copy post" and, where supported, "Copy &amp; open", which copies that segment including its numbering and opens the platform composer. Successful per-post copying advances to the next card and wraps back to the first; failed copying stays on the current card. If opening fails after copying succeeds, the card still advances and the error remains visible. Opening the composer does not link posts: publish later segments manually as replies to the previous post. The shared image is available separately; add it to the post you choose.</li>
+          <li>Thread text, order, and numbering survive reloads and are included in saved drafts, recovery checkpoints, search, and backups.</li>
+        </ul>
+      </section>
+      ) : null}
+
       <section className="help-section">
         <h3>AI assistant (optional)</h3>
         <ul className="help-list">
@@ -33,18 +48,24 @@ export function HelpContent({ webApp = false }: { webApp?: boolean }) {
             endpoint that allows browser/CORS requests. Use Test connection to verify it works. Your API key is stored
             only in this browser.
           </li>
-          <li>Ask the AI to write or improve the main draft from the bar above the editor.</li>
+          <li>Ask the AI to write or improve the main draft from the bar above the editor. Generation starts after a three-second pause; Enter submits immediately.</li>
           <li>
             Give the AI material to use as its context with \"Reference sources for AI\": add a .txt/.md/.docx file or
             pasted text. Sources are context only — they're never posted. Click a pasted source to edit it inline; an
             untitled paste is named automatically when AI is configured.
           </li>
-          <li>Use "Adapt with AI" on a card to rewrite the post for that platform on demand.</li>
+          <li>Use "Suggest AI changes" on a card to adapt that platform on demand. Platform previews update directly without tracked changes.</li>
           <li>
-            With auto-fit on, any platform over its limit is rewritten automatically about 3 seconds after you stop
-            typing (shown with an AI badge; re-sync drops it). Fitted versions are re-checked against the limit and
-            regenerated if still too long.
+            With auto-fit on, over-limit platforms adapt about 3 seconds after you stop typing.
+            Tracked changes appear only in the main draft. Left- or right-click a change to open its Accept/Reject menu;
+            keyboard users can focus a change and press Enter or Shift+F10.
+            You can edit text directly; the final decision applies the result automatically. Accept All and Reject All
+            resolve the remaining changes. Initial drafts start unmarked and apply automatically. A warning identifies
+            any suggestion mechanically cut to fit.
           </li>
+          <li>Platform previews stay unchanged during AI writing and review, then refresh after a three-second pause once all changes are resolved.</li>
+          <li>Toggle "View changes applied" for a clean preview without accepting or rejecting any changes.</li>
+          <li>Recovery history retains versions before and after AI acceptance.</li>
           <li>Add Style guidance in settings to steer the voice (e.g. "keep it light-hearted with a bit of humor").</li>
         </ul>
       </section>
@@ -129,6 +150,13 @@ export function HelpContent({ webApp = false }: { webApp?: boolean }) {
         <h3>Drafts &amp; shortcuts</h3>
         <ul className="help-list">
           <li>Saved drafts (including per-platform customizations and your enabled platforms) are local to this browser only.</li>
+          {webApp ? (
+            <>
+              <li>Saved drafts includes searchable named drafts and the latest 20 recovery checkpoints. Save draft creates a new entry; Update draft replaces the selected entry. Named drafts are never automatically evicted.</li>
+              <li>Recovery checkpoints include all platform variants, AI sources, and attached media. They are saved after 10 seconds of inactivity and before destructive changes. Restore one from Recovery history.</li>
+              <li>Export backup downloads all library entries and the current workspace, including attachments. API keys and AI settings are excluded. Import backup validates the file and adds new entries without overwriting existing drafts or the editor. Browser data can be cleared, so keep backups outside the browser.</li>
+            </>
+          ) : null}
           <li>Keyboard shortcuts include Ctrl+B, Ctrl+I, Ctrl+Z, and Ctrl+Y, and work in both the main editor and the platform previews.</li>
         </ul>
       </section>
