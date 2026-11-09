@@ -475,9 +475,16 @@ function App() {
       }
     } finally {
       if (authorAbortRef.current === controller) {
+        authorAbortRef.current = null;
         setAuthorBusy(false);
       }
     }
+  }
+
+  function handleCancelAuthor() {
+    authorAbortRef.current?.abort();
+    authorAbortRef.current = null;
+    setAuthorBusy(false);
   }
 
   function handleSaveSettings(config: LlmConfig) {
@@ -829,6 +836,7 @@ function App() {
               busy={authorBusy}
               error={authorError}
               onSubmit={handleAuthor}
+              onCancel={handleCancelAuthor}
               onOpenSettings={() => setShowSettings(true)}
               hasDraft={Boolean(docToPlainText(workspace.master).trim())}
               stylePrompt={llmConfig.stylePrompt}

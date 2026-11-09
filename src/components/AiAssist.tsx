@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { AlertTriangle, Settings, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowUp, Settings, Sparkles, Square } from 'lucide-react';
 
 import { SourcesPanel } from './SourcesPanel';
 import type { Source } from '../lib/ai/sources';
@@ -10,6 +10,7 @@ interface AiAssistProps {
   busy: boolean;
   error: string | null;
   onSubmit: (instruction: string) => void;
+  onCancel: () => void;
   onOpenSettings: () => void;
   // Whether the master draft has content — quick "rewrite" prompts need something
   // to act on, so they only show when there's a draft.
@@ -108,7 +109,7 @@ function getCaretLineInfo(el: HTMLTextAreaElement): CaretLineInfo {
   };
 }
 
-export function AiAssist({ ready, busy, error, onSubmit, onOpenSettings, hasDraft, stylePrompt, sources, onAddSource, onUpdateSource, onRemoveSource }: AiAssistProps) {
+export function AiAssist({ ready, busy, error, onSubmit, onCancel, onOpenSettings, hasDraft, stylePrompt, sources, onAddSource, onUpdateSource, onRemoveSource }: AiAssistProps) {
   const [instruction, setInstruction] = useState('');
   // Seeded from storage so the ↑/↓ recall survives reloads, and persisted on change.
   const [history, setHistory] = useState<string[]>(loadPromptHistory);
@@ -251,8 +252,15 @@ export function AiAssist({ ready, busy, error, onSubmit, onOpenSettings, hasDraf
             onChange={(event) => setInstruction(event.target.value)}
             onKeyDown={handleKeyDown}
           />
-          <button type="submit" className="primary-action ai-assist-submit" disabled={busy || !instruction.trim()}>
-            {busy ? 'Working…' : 'Generate'}
+          <button
+            type={busy ? 'button' : 'submit'}
+            className="primary-action ai-assist-submit"
+            aria-label={busy ? 'Cancel' : 'Generate'}
+            title={busy ? 'Cancel' : 'Generate'}
+            disabled={!busy && !instruction.trim()}
+            onClick={busy ? onCancel : undefined}
+          >
+            {busy ? <Square aria-hidden="true" size={12} fill="currentColor" /> : <ArrowUp aria-hidden="true" size={18} />}
           </button>
         </div>
         {hasDraft ? (

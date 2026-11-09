@@ -425,12 +425,14 @@ h2 {
   overflow-y: hidden;
 }
 
-/* Compact Generate button so it doesn't tower over the input. The extra class
-   raises specificity above .primary-action (same single-class weight otherwise). */
 .ai-assist .ai-assist-submit {
-  min-height: 34px;
-  padding: 0 14px;
-  font-size: 0.82rem;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  margin-top: 3px;
+  padding: 0;
+  border-radius: 50%;
 }
 
 /* One-click suggested prompts under the input — tinted to match the AI accent. */

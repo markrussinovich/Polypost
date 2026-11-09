@@ -92,6 +92,74 @@ describe('App URL preview fetching', () => {
     expect(generateFit).toHaveBeenCalledWith(expect.objectContaining({ style: 'Make it concise and warm.' }));
   });
 
+  it('switches Generate to Cancel during a request and back after completion', async () => {
+    let resolveRequest!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise((resolve) => { resolveRequest = resolve; }));
+    render(<App />);
+    saveAiSettings();
+
+    expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('AI instruction'), { target: { value: 'Write a post' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Generate' }));
+
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+    expect(screen.getByLabelText('AI instruction')).toBeDisabled();
+
+    await act(async () => {
+      resolveRequest({
+        ok: true,
+        json: async () => ({ content: [{ type: 'text', text: 'Generated post' }] }),
+      } as Response);
+    });
+
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
+    expect(screen.getByLabelText('AI instruction')).toBeEnabled();
+    expect(screen.getByLabelText('AI instruction')).toHaveValue('');
+    expect(screen.getAllByText('Generated post').length).toBeGreaterThan(0);
+  });
+
+  it('aborts generation immediately and ignores a late result while a new request runs', async () => {
+    let resolveRequest!: (response: Response) => void;
+    vi.mocked(fetch)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveRequest = resolve; }))
+      .mockImplementationOnce((_input, options) => new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      }));
+    render(<App />);
+    fireEvent.change(screen.getByLabelText('Mock post editor'), { target: { value: 'Original draft' } });
+    saveAiSettings();
+    fireEvent.change(screen.getByLabelText('AI instruction'), { target: { value: 'Rewrite this' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Generate' }));
+    const signal = vi.mocked(fetch).mock.calls[0][1]?.signal;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(signal?.aborted).toBe(true);
+    expect(screen.getByLabelText('AI instruction')).toBeEnabled();
+    expect(screen.getByLabelText('Mock post editor')).toHaveValue('Original draft');
+    fireEvent.change(screen.getByLabelText('AI instruction'), { target: { value: 'Try again' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Generate' }));
+
+    await act(async () => {
+      resolveRequest({
+        ok: true,
+        json: async () => ({ content: [{ type: 'text', text: 'Cancelled result' }] }),
+      } as Response);
+    });
+
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+    expect(screen.getByLabelText('Mock post editor')).toHaveValue('Original draft');
+    expect(screen.queryByText('Cancelled result')).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    });
+    expect(screen.getByLabelText('AI instruction')).toBeEnabled();
+    expect(screen.queryByText('Aborted')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
+  });
+
   it('does not re-style platforms whose input has not changed', async () => {
     render(<App />);
 
