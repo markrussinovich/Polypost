@@ -48,7 +48,7 @@ export function HelpContent({ webApp = false }: { webApp?: boolean }) {
             endpoint that allows browser/CORS requests. Use Test connection to verify it works. Your API key is stored
             only in this browser.
           </li>
-          <li>Ask the AI to write or improve the main draft from the bar above the editor. Generation starts after a three-second pause; Enter submits immediately.</li>
+          <li>Ask the AI to write or improve the main draft from the bar above the editor. Click the up-arrow button or press Enter to submit; Shift+Enter inserts a newline. Prompts never submit automatically.</li>
           <li>
             Give the AI material to use as its context with \"Reference sources for AI\": add a .txt/.md/.docx file or
             pasted text. Sources are context only — they're never posted. Click a pasted source to edit it inline; an

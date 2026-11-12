@@ -22,7 +22,7 @@ function setup(busy = false) {
   return { onSubmit, input: screen.getByLabelText('AI instruction') };
 }
 
-describe('automatic AI authoring', () => {
+describe('AI authoring', () => {
   it('uses an animated icon with a screen-reader-only generating status', () => {
     setup(true);
     const status = screen.getByRole('status');
@@ -32,33 +32,43 @@ describe('automatic AI authoring', () => {
     expect(status.closest('.ai-assist')).toHaveAttribute('aria-busy', 'true');
     expect(screen.queryByText('Working...')).toBeNull();
   });
-  it('generates after three seconds of inactivity with manual submission available', async () => {
+  it('keeps an idle prompt until the user clicks Generate', async () => {
     const { onSubmit, input } = setup();
     expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
     fireEvent.change(input, { target: { value: 'Write a launch post' } });
-    await act(async () => { vi.advanceTimersByTime(2999); });
+    await act(async () => { vi.advanceTimersByTime(30000); });
     expect(onSubmit).not.toHaveBeenCalled();
-    await act(async () => { vi.advanceTimersByTime(1); });
+    expect(input).toHaveValue('Write a launch post');
+    fireEvent.click(screen.getByRole('button', { name: 'Generate' }));
     expect(onSubmit).toHaveBeenCalledExactlyOnceWith('Write a launch post');
   });
 
-  it('restarts the timer when the prompt changes and never generates an empty prompt', async () => {
+  it('does not submit edited or recalled prompts on a timer', async () => {
     const { onSubmit, input } = setup();
     fireEvent.change(input, { target: { value: 'First' } });
-    await act(async () => { vi.advanceTimersByTime(2000); });
+    await act(async () => { vi.advanceTimersByTime(4000); });
     fireEvent.change(input, { target: { value: 'Updated prompt' } });
-    await act(async () => { vi.advanceTimersByTime(2000); });
+    await act(async () => { vi.advanceTimersByTime(4000); });
     expect(onSubmit).not.toHaveBeenCalled();
-    await act(async () => { vi.advanceTimersByTime(1000); });
+    fireEvent.keyDown(input, { key: 'Enter' });
     expect(onSubmit).toHaveBeenCalledExactlyOnceWith('Updated prompt');
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(input).toHaveValue('Updated prompt');
+    await act(async () => { vi.advanceTimersByTime(4000); });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
     fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
     await act(async () => { vi.advanceTimersByTime(4000); });
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it('Enter submits immediately without a duplicate automatic request', async () => {
+  it('Shift+Enter does not submit, while Enter submits once', async () => {
     const { onSubmit, input } = setup();
     fireEvent.change(input, { target: { value: 'Write now' } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+    await act(async () => { vi.advanceTimersByTime(4000); });
+    expect(onSubmit).not.toHaveBeenCalled();
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onSubmit).toHaveBeenCalledExactlyOnceWith('Write now');
     await act(async () => { vi.advanceTimersByTime(4000); });

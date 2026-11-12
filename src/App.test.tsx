@@ -367,7 +367,7 @@ describe('App URL preview fetching', () => {
     saveAiSettings();
     await act(async () => {});
     fireEvent.change(screen.getByLabelText('AI instruction'), { target: { value: 'Rewrite' } });
-    await act(async () => { vi.advanceTimersByTime(3000); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Generate' })); });
     const card = screen.getByLabelText('X preview');
     expect(within(card).queryByRole('region', { name: 'Tracked changes for X' })).toBeNull();
     expect(within(card).getByRole('switch')).toBeDisabled();
@@ -436,7 +436,7 @@ describe('App URL preview fetching', () => {
     await act(async () => {});
     fireEvent.change(screen.getByLabelText('AI instruction'), { target: { value: 'Rewrite it' } });
     expect(screen.getByRole('button', { name: 'Generate' })).toBeEnabled();
-    await act(async () => { vi.advanceTimersByTime(3000); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Generate' })); });
     expect(screen.queryByLabelText('Mock post editor')).toBeNull();
     const review = screen.getByRole('region', { name: 'Review AI changes for master draft' });
     expect(generateText).toHaveBeenCalledTimes(1);
@@ -467,7 +467,7 @@ describe('App URL preview fetching', () => {
     saveAiSettings();
     await act(async () => {});
     fireEvent.change(screen.getByLabelText('AI instruction'), { target: { value: 'Write a launch post' } });
-    await act(async () => { vi.advanceTimersByTime(3000); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Generate' })); });
     expect(screen.getAllByLabelText('Mock post editor')).toHaveLength(1);
     expect(screen.getByLabelText('Mock post editor')).toHaveValue('AI-authored post');
     expect(screen.queryByRole('region', { name: 'Review AI changes for master draft' })).toBeNull();
@@ -525,7 +525,7 @@ describe('App URL preview fetching', () => {
     saveAiSettings();
     await act(async () => {});
     fireEvent.change(screen.getByLabelText('AI instruction'), { target: { value: 'Rewrite' } });
-    await act(async () => { vi.advanceTimersByTime(3000); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Generate' })); });
     library.failWrites = true;
     await act(async () => {
       fireEvent.click(within(screen.getByRole('region', { name: 'Review AI changes for master draft' })).getByRole('button', { name: 'Accept All' }));
